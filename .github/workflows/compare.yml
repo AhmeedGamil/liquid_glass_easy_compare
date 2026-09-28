@@ -125,6 +125,12 @@ jobs:
           VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
         run: bash tools/start_vnc.sh
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vnc-debug
+          path: vnc-debug
+          if-no-files-found: ignore
+
       - name: Join your tailnet
         uses: tailscale/github-action@v3
         with:
