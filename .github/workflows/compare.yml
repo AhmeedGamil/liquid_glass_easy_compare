@@ -1,0 +1,134 @@
+name: Compare
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: record = clips + compare page, live = remote screen, both = run the two side by side
+        type: choice
+        options: [both, record, live]
+        default: both
+      live_minutes:
+        description: How long the live Mac stays up (cancel the run to end sooner)
+        type: number
+        default: 45
+      package_ref:
+        description: liquid_glass_easy branch, tag or commit to compare
+        type: string
+        default: main
+      device:
+        description: Simulator model
+        type: string
+        default: iPhone 17 Pro
+      flutter_version:
+        type: string
+        default: 3.41.2
+      runner:
+        description: macOS runner image (needs Xcode 26)
+        type: string
+        default: macos-26
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  record:
+    if: inputs.mode != 'live'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-apps
+        with:
+          package_ref: ${{ inputs.package_ref }}
+          flutter_version: ${{ inputs.flutter_version }}
+          device: ${{ inputs.device }}
+
+      - name: Record Apple
+        run: python3 tools/record.py --udid "$UDID" --app apple --out site/clips --project apple/AppleReference.xcodeproj --derived build/dd
+
+      - name: Record package
+        run: python3 tools/record.py --udid "$UDID" --app package --out site/clips --project apple/AppleReference.xcodeproj --derived build/dd
+
+      - name: Stamp the run
+        run: |
+          cd package_app
+          SHA=$(grep -A3 "liquid_glass_easy:" pubspec.lock | grep resolved-ref | awk '{print $2}' | tr -d '"')
+          cd ..
+          python3 - <<EOF
+          import json
+          p = "site/clips/manifest.json"
+          m = json.load(open(p))
+          m["run"] = {
+              "package_ref": "${{ inputs.package_ref }}",
+              "package_sha": "$SHA",
+              "device": "${{ inputs.device }}",
+              "xcode": "$(xcodebuild -version | head -1)",
+              "run_id": "${{ github.run_id }}",
+          }
+          json.dump(m, open(p, "w"), indent=2)
+          EOF
+          ls -la site/clips site/clips/shots
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clips
+          path: site/clips
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  pages:
+    needs: record
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+  live:
+    if: inputs.mode != 'record'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-apps
+        with:
+          package_ref: ${{ inputs.package_ref }}
+          flutter_version: ${{ inputs.flutter_version }}
+          device: ${{ inputs.device }}
+
+      - name: Open the simulator window
+        run: |
+          open -a Simulator --args -CurrentDeviceUDID "$UDID"
+          sleep 5
+          xcrun simctl launch "$UDID" dev.lgcompare.apple
+
+      - name: Turn on screen sharing
+        env:
+          VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
+        run: bash tools/start_vnc.sh
+
+      - name: Join your tailnet
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TS_AUTHKEY }}
+          hostname: lg-compare-mac
+
+      - name: Stay up
+        run: |
+          IP=$(tailscale ip -4 2>/dev/null || true)
+          echo "::notice title=Connect::VNC to lg-compare-mac ($IP) port 5900. Cancel this run to shut it down."
+          END=$(( $(date +%s) + ${{ inputs.live_minutes }} * 60 ))
+          while [ "$(date +%s)" -lt "$END" ]; do
+            echo "live, $(( (END - $(date +%s)) / 60 )) min left"
+            sleep 60
+          done

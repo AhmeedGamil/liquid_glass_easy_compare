@@ -1,0 +1,54 @@
+name: Set up both apps
+description: Picks Xcode 26, boots the simulator, builds and installs the Apple reference app and the package app.
+inputs:
+  package_ref:
+    description: Branch, tag or commit of liquid_glass_easy
+    required: true
+  flutter_version:
+    required: true
+  device:
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Pick the newest Xcode 26
+      shell: bash
+      run: |
+        XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+        if [ -z "$XCODE" ]; then XCODE=$(xcode-select -p | sed 's#/Contents/Developer##'); fi
+        sudo xcode-select -s "$XCODE"
+        xcodebuild -version
+
+    - uses: subosito/flutter-action@v2
+      with:
+        flutter-version: ${{ inputs.flutter_version }}
+        channel: stable
+        cache: true
+
+    - name: Boot the simulator
+      shell: bash
+      run: |
+        UDID=$(python3 tools/boot_sim.py "${{ inputs.device }}")
+        echo "UDID=$UDID" >> "$GITHUB_ENV"
+        xcrun simctl ui "$UDID" appearance light
+        xcrun simctl status_bar "$UDID" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3
+
+    - name: Build the Apple reference app
+      shell: bash
+      run: |
+        brew install xcodegen >/dev/null
+        (cd apple && xcodegen generate)
+        xcodebuild build-for-testing \
+          -project apple/AppleReference.xcodeproj -scheme AppleReference \
+          -destination "id=$UDID" -derivedDataPath build/dd \
+          CODE_SIGNING_ALLOWED=NO | tail -30
+        xcrun simctl install "$UDID" build/dd/Build/Products/Debug-iphonesimulator/AppleReference.app
+
+    - name: Build the package app
+      shell: bash
+      run: |
+        cd package_app
+        sed -i '' "s#^      ref: .*#      ref: ${{ inputs.package_ref }}#" pubspec.yaml
+        flutter pub get
+        flutter build ios --simulator --debug
+        xcrun simctl install "$UDID" build/ios/iphonesimulator/Runner.app
