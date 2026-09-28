@@ -1,0 +1,4 @@
+build/
+apple/*.xcodeproj
+site/clips/
+.DS_Store
