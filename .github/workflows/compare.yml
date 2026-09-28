@@ -12,6 +12,10 @@ on:
         description: How long the live Mac stays up (cancel the run to end sooner)
         type: number
         default: 45
+      include_package:
+        description: Also build and record the liquid_glass_easy app next to Apple
+        type: boolean
+        default: false
       package_ref:
         description: liquid_glass_easy branch, tag or commit to compare
         type: string
@@ -46,24 +50,27 @@ jobs:
           package_ref: ${{ inputs.package_ref }}
           flutter_version: ${{ inputs.flutter_version }}
           device: ${{ inputs.device }}
+          build_package: ${{ inputs.include_package }}
 
       - name: Record Apple
         run: python3 tools/record.py --udid "$UDID" --app apple --out site/clips --project apple/AppleReference.xcodeproj --derived build/dd
 
       - name: Record package
+        if: inputs.include_package
         run: python3 tools/record.py --udid "$UDID" --app package --out site/clips --project apple/AppleReference.xcodeproj --derived build/dd
 
       - name: Stamp the run
         run: |
-          cd package_app
-          SHA=$(grep -A3 "liquid_glass_easy:" pubspec.lock | grep resolved-ref | awk '{print $2}' | tr -d '"')
-          cd ..
+          SHA=""
+          if [ -f package_app/pubspec.lock ]; then
+            SHA=$(grep -A6 "liquid_glass_easy:" package_app/pubspec.lock | grep resolved-ref | awk '{print $2}' | tr -d '"')
+          fi
           python3 - <<EOF
           import json
           p = "site/clips/manifest.json"
           m = json.load(open(p))
           m["run"] = {
-              "package_ref": "${{ inputs.package_ref }}",
+              "package_ref": "${{ inputs.include_package && inputs.package_ref || '' }}",
               "package_sha": "$SHA",
               "device": "${{ inputs.device }}",
               "xcode": "$(xcodebuild -version | head -1)",
@@ -105,6 +112,7 @@ jobs:
           package_ref: ${{ inputs.package_ref }}
           flutter_version: ${{ inputs.flutter_version }}
           device: ${{ inputs.device }}
+          build_package: ${{ inputs.include_package }}
 
       - name: Open the simulator window
         run: |

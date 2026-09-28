@@ -8,6 +8,9 @@ inputs:
     required: true
   device:
     required: true
+  build_package:
+    description: Also build the liquid_glass_easy app ("true"/"false")
+    default: "false"
 runs:
   using: composite
   steps:
@@ -20,6 +23,7 @@ runs:
         xcodebuild -version
 
     - uses: subosito/flutter-action@v2
+      if: inputs.build_package == 'true'
       with:
         flutter-version: ${{ inputs.flutter_version }}
         channel: stable
@@ -45,6 +49,7 @@ runs:
         xcrun simctl install "$UDID" build/dd/Build/Products/Debug-iphonesimulator/AppleReference.app
 
     - name: Build the package app
+      if: inputs.build_package == 'true'
       shell: bash
       run: |
         cd package_app
