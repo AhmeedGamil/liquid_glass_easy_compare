@@ -55,7 +55,7 @@
 </head>
 <body>
 <main>
-  <h1>Apple Liquid Glass vs liquid_glass_easy</h1>
+  <h1 id="title">Apple Liquid Glass vs liquid_glass_easy</h1>
   <div class="meta" id="meta">Loading…</div>
 
   <div class="row" id="scenes"></div>
@@ -64,7 +64,7 @@
     <button class="chip" data-src="clip" aria-pressed="true">Motion</button>
     <button class="chip" data-src="shot" aria-pressed="false">At rest</button>
   </div>
-  <div class="row">
+  <div class="row" id="viewRow">
     <span class="label">View</span>
     <button class="chip" data-view="side" aria-pressed="true">Side by side</button>
     <button class="chip" data-view="wipe" aria-pressed="false">Wipe</button>
@@ -138,8 +138,15 @@
     pane.append(video, img, tag);
     return { pane, video, img, tag, who };
   };
+  // Without a package recording the page is a plain viewer for Apple's clips.
+  const hasPkg = !!(manifest.package && Object.keys(manifest.package.scenes || {}).length);
+  if (!hasPkg) {
+    $('title').textContent = 'Apple Liquid Glass, iOS 26';
+    $('viewRow').style.display = 'none';
+    state.view = 'side';
+  }
   const A = make('apple', 'apple', 'APPLE');
-  const P = make('package', 'pkg', 'PACKAGE');
+  const P = hasPkg ? make('package', 'pkg', 'PACKAGE') : null;
   const line = document.createElement('div'); line.className = 'wipe-line';
 
   const span = (who) => {
@@ -150,6 +157,16 @@
   function layout() {
     const stage = $('stage');
     stage.replaceChildren();
+    if (!P) {
+      stage.className = 'stage stack';
+      A.video.style.display = state.src === 'clip' ? '' : 'none';
+      A.img.style.display = state.src === 'shot' ? '' : 'none';
+      stage.append(A.pane);
+      $('motionControls').style.display = state.src === 'clip' ? '' : 'none';
+      $('syncControls').style.display = state.src === 'clip' ? '' : 'none';
+      $('nudgeMinus').style.display = $('nudgePlus').style.display = 'none';
+      return;
+    }
     stage.className = 'stage' + (state.view === 'side' ? '' : ' stack');
     for (const x of [A, P]) {
       x.pane.style.display = ''; x.pane.style.position = '';
@@ -180,6 +197,7 @@
   }
 
   function applyOverlay() {
+    if (!P) return;
     const pkgEls = [P.video, P.img];
     if (state.view === 'wipe') {
       for (const el of pkgEls) { el.style.clipPath = `inset(0 ${100 - state.wipe}% 0 0)`; el.style.visibility = ''; }
@@ -198,7 +216,7 @@
 
   function loadScene() {
     A.img.src = `clips/shots/apple-${state.scene}.png`;
-    P.img.src = `clips/shots/package-${state.scene}.png`;
+    if (P) P.img.src = `clips/shots/package-${state.scene}.png`;
     restart();
     for (const b of $('scenes').children) b.setAttribute('aria-pressed', String(b.dataset.scene === state.scene));
   }
@@ -211,17 +229,18 @@
 
   // Apple drives the clock; the package follows it, offset to its own marks.
   function syncPkg(force) {
+    if (!P) return;
     const t = span('package').start + (A.video.currentTime - span('apple').start) + state.nudge;
     if (force || Math.abs(P.video.currentTime - t) > 0.04) P.video.currentTime = Math.max(0, t);
   }
 
   function play() {
     state.playing = true; $('play').textContent = 'Pause';
-    for (const v of [A.video, P.video]) { v.playbackRate = state.speed; v.play().catch(() => {}); }
+    for (const v of [A.video, P?.video].filter(Boolean)) { v.playbackRate = state.speed; v.play().catch(() => {}); }
   }
   function pause() {
     state.playing = false; $('play').textContent = 'Play';
-    A.video.pause(); P.video.pause(); syncPkg(true);
+    A.video.pause(); P?.video.pause(); syncPkg(true);
   }
   function step(dir) {
     pause();
@@ -235,7 +254,7 @@
       if (A.video.currentTime > s.end + TAIL) restart();
       else if (state.playing) syncPkg(false);
       const rel = A.video.currentTime - s.start;
-      $('readout').textContent = `t ${rel.toFixed(2)} s · offset ${state.nudge >= 0 ? '+' : ''}${state.nudge.toFixed(2)} s`;
+      $('readout').textContent = !P ? `t ${rel.toFixed(2)} s` : `t ${rel.toFixed(2)} s · offset ${state.nudge >= 0 ? '+' : ''}${state.nudge.toFixed(2)} s`;
     }
     requestAnimationFrame(tick);
   }
@@ -254,7 +273,7 @@
     b.onclick = () => {
       state.speed = s; save();
       for (const c of $('speeds').children) c.setAttribute('aria-pressed', String(c === b));
-      for (const v of [A.video, P.video]) v.playbackRate = s;
+      for (const v of [A.video, P?.video].filter(Boolean)) v.playbackRate = s;
     };
     $('speeds').append(b);
   }
