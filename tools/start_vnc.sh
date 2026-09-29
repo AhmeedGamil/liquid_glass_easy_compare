@@ -5,14 +5,33 @@
 set -u
 KICK=/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart
 
-# dscl alone is refused for a user holding a SecureToken, so reset through
-# sysadminctl too, then check the Mac really takes the new password.
-sudo sysadminctl -resetPasswordFor runner -newPassword "$VNC_PASSWORD" 2>&1 | tail -2 || true
-sudo dscl . -passwd /Users/runner "$VNC_PASSWORD" 2>&1 || true
-if dscl . -authonly runner "$VNC_PASSWORD" 2>/dev/null; then
-  echo "runner login password set"
+# The lock screen asks for the auto-login user's password. That user holds
+# a SecureToken, so its password only changes given the old one, which
+# auto-login keeps XOR'd in /etc/kcpassword.
+mkdir -p vnc-debug
+LOGIN_USER=$(sudo defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null || stat -f%Su /dev/console)
+{
+  echo "console user: $(stat -f%Su /dev/console)"
+  echo "auto-login user: $LOGIN_USER"
+  for U in $(dscl . -list /Users UniqueID | awk '$2 >= 500 { print $1 }'); do
+    echo "user $U: $(dscl . -read "/Users/$U" RealName 2>/dev/null | tail -1 | xargs)"
+  done
+  sudo test -f /etc/kcpassword && echo "kcpassword: present" || echo "kcpassword: missing"
+} | tee vnc-debug/info.txt
+
+OLD=$(sudo python3 -c 'k=[0x7D,0x89,0x52,0x23,0xD2,0xBC,0xDD,0xEA,0xA3,0xB9,0x1F]; d=open("/etc/kcpassword","rb").read(); print(bytes(b ^ k[i % len(k)] for i, b in enumerate(d)).split(b"\0")[0].decode("utf-8", "replace"))' 2>/dev/null || true)
+if [ -n "$OLD" ]; then
+  echo "::add-mask::$OLD"
+  dscl . -authonly "$LOGIN_USER" "$OLD" 2>/dev/null && echo "old password read" | tee -a vnc-debug/info.txt
+  sudo dscl . -passwd "/Users/$LOGIN_USER" "$OLD" "$VNC_PASSWORD" 2>&1 \
+    || sudo sysadminctl -resetPasswordFor "$LOGIN_USER" -newPassword "$VNC_PASSWORD" -adminUser "$LOGIN_USER" -adminPassword "$OLD" 2>&1 || true
+  sudo -u "$LOGIN_USER" security set-keychain-password -o "$OLD" -p "$VNC_PASSWORD" \
+    "/Users/$LOGIN_USER/Library/Keychains/login.keychain-db" 2>/dev/null || true
+fi
+if dscl . -authonly "$LOGIN_USER" "$VNC_PASSWORD" 2>/dev/null; then
+  echo "lock screen password is now the VNC password" | tee -a vnc-debug/info.txt
 else
-  echo "::warning::the runner login password did not change"
+  echo "::warning::the $LOGIN_USER password did not change" | tee -a vnc-debug/info.txt
 fi
 
 # Keep the session from ever locking or sleeping, so no password is asked.

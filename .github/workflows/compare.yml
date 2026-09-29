@@ -12,6 +12,10 @@ on:
         description: How long the live Mac stays up (cancel the run to end sooner)
         type: number
         default: 45
+      browser_remote:
+        description: Also serve the slower browser remote on port 8765 (WebDriverAgent)
+        type: boolean
+        default: false
       include_package:
         description: Also build and record the liquid_glass_easy app next to Apple
         type: boolean
@@ -124,6 +128,7 @@ jobs:
       # and takes touches, straight from the simulator, so the Mac's own
       # lock screen never gets in the way.
       - name: Start the browser remote
+        if: inputs.browser_remote
         run: |
           git clone --depth 1 https://github.com/appium/WebDriverAgent.git build/WebDriverAgent
           xcodebuild build-for-testing \
@@ -178,20 +183,20 @@ jobs:
       - name: Stay up
         run: |
           IP=$(tailscale ip -4 2>/dev/null || true)
-          echo "::notice title=Connect::Browser: http://lg-compare-mac:8765 (or http://$IP:8765). VNC: port 5900. Cancel this run to shut it down."
+          echo "::notice title=Connect::VNC: lg-compare-mac ($IP) port 5900. Cancel this run to shut it down."
           # Idle is what locks the screen; declare user activity all along.
           caffeinate -dimsu &
           END=$(( $(date +%s) + ${{ inputs.live_minutes }} * 60 ))
           while [ "$(date +%s)" -lt "$END" ]; do
             echo "live, $(( (END - $(date +%s)) / 60 )) min left"
             # Bring the browser remote back if either half has died.
-            if ! curl -sf -m 5 http://127.0.0.1:8100/status >/dev/null; then
+            if [ "${{ inputs.browser_remote }}" = "true" ] && ! curl -sf -m 5 http://127.0.0.1:8100/status >/dev/null; then
               echo "restarting WebDriverAgent"
               nohup xcodebuild test-without-building \
                 -project build/WebDriverAgent/WebDriverAgent.xcodeproj -scheme WebDriverAgentRunner \
                 -destination "id=$UDID" -derivedDataPath build/wda >> wda.log 2>&1 &
             fi
-            if ! curl -sf -m 5 http://127.0.0.1:8765/ >/dev/null; then
+            if [ "${{ inputs.browser_remote }}" = "true" ] && ! curl -sf -m 5 http://127.0.0.1:8765/ >/dev/null; then
               echo "restarting the remote page"
               nohup python3 tools/remote.py --port 8765 >> remote.log 2>&1 &
             fi
