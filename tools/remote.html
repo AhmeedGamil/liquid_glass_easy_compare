@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>iPhone Remote</title>
+<style>
+  :root { --bg: #0b0b0d; --bar: #18181c; --ink: #f2f2f5; --muted: #8b8b95; --accent: #0a84ff; --line: #2b2b31; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font: 14px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  body { display: flex; flex-direction: column; }
+  #screenWrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 8px; }
+  #screen { position: relative; height: 100%; max-width: 100%; aspect-ratio: 402 / 874; }
+  #stream { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+    border-radius: 22px; background: #000; user-select: none; -webkit-user-drag: none; }
+  #touch { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; border-radius: 22px; }
+  #bar { display: flex; gap: 6px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); background: var(--bar);
+    overflow-x: auto; border-top: 1px solid var(--line); }
+  #bar button { flex: none; border: 1px solid var(--line); background: #222228; color: var(--ink);
+    border-radius: 10px; padding: 9px 12px; font: inherit; min-height: 40px; }
+  #bar button.primary { background: var(--accent); border-color: var(--accent); }
+  #status { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.7);
+    color: var(--ink); padding: 5px 10px; border-radius: 8px; font-size: 12px; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="status">Connecting…</div>
+<div id="screenWrap">
+  <div id="screen">
+    <img id="stream" alt="iPhone screen">
+    <canvas id="touch"></canvas>
+  </div>
+</div>
+<div id="bar">
+  <button class="primary" data-app="dev.lgcompare.apple">Glass app</button>
+  <button id="home">Home</button>
+  <button data-app="com.apple.Preferences">Settings</button>
+  <button data-app="com.apple.mobilesafari">Safari</button>
+  <button data-app="com.apple.mobileslideshow">Photos</button>
+  <button data-app="com.apple.Maps">Maps</button>
+  <button id="fps">Smooth</button>
+  <button id="reload">Reload</button>
+</div>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const status = (t) => { $('status').textContent = t; $('status').style.display = t ? '' : 'none'; };
+  let session = null, win = { width: 402, height: 874 };
+  let busy = Promise.resolve();
+
+  async function wda(method, path, body) {
+    const res = await fetch('/wda' + path, {
+      method, headers: { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((json.value && json.value.message) || res.status);
+    return json;
+  }
+
+  async function connect() {
+    status('Connecting…');
+    try {
+      const s = await wda('GET', '/status');
+      session = s.sessionId || (s.value && s.value.sessionId) || null;
+      if (!session) {
+        const r = await wda('POST', '/session', { capabilities: { alwaysMatch: {}, firstMatch: [{}] } });
+        session = r.sessionId || r.value.sessionId;
+      }
+      const size = await wda('GET', `/session/${session}/window/size`);
+      win = size.value;
+      await setQuality(false);
+      $('stream').src = '/stream?' + Date.now();
+      status('');
+    } catch (e) {
+      status('Not ready yet (' + e.message + '), retrying…');
+      setTimeout(connect, 3000);
+    }
+  }
+
+  let smooth = false;
+  async function setQuality(fast) {
+    smooth = fast;
+    $('fps').textContent = fast ? 'Sharp' : 'Smooth';
+    await wda('POST', `/session/${session}/appium/settings`, { settings: fast
+      ? { mjpegServerFramerate: 30, mjpegScalingFactor: 40, mjpegServerScreenshotQuality: 45 }
+      : { mjpegServerFramerate: 15, mjpegScalingFactor: 75, mjpegServerScreenshotQuality: 80 } }).catch(() => {});
+  }
+
+  // A finger stroke on the picture is replayed on the iPhone with the same
+  // path and timing once it lifts (the simulator takes whole gestures).
+  const canvas = $('touch'), ctx = canvas.getContext('2d');
+  let stroke = null;
+  const toDevice = (e) => {
+    const r = canvas.getBoundingClientRect();
+    return { x: (e.clientX - r.left) / r.width * win.width, y: (e.clientY - r.top) / r.height * win.height, t: performance.now() };
+  };
+  const draw = () => {
+    const r = canvas.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+    if (canvas.width !== Math.round(r.width * dpr)) { canvas.width = Math.round(r.width * dpr); canvas.height = Math.round(r.height * dpr); }
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!stroke) return;
+    ctx.strokeStyle = 'rgba(10,132,255,.8)'; ctx.fillStyle = 'rgba(10,132,255,.35)';
+    ctx.lineWidth = 4 * dpr; ctx.lineCap = 'round'; ctx.beginPath();
+    stroke.forEach((p, i) => {
+      const x = p.x / win.width * canvas.width, y = p.y / win.height * canvas.height;
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    });
+    ctx.stroke();
+    const last = stroke[stroke.length - 1];
+    ctx.beginPath(); ctx.arc(last.x / win.width * canvas.width, last.y / win.height * canvas.height, 18 * dpr, 0, Math.PI * 2); ctx.fill();
+  };
+  canvas.addEventListener('pointerdown', (e) => { canvas.setPointerCapture(e.pointerId); stroke = [toDevice(e)]; draw(); });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!stroke) return;
+    const p = toDevice(e), last = stroke[stroke.length - 1];
+    if (p.t - last.t >= 16) { stroke.push(p); draw(); }
+  });
+  const finish = (e) => {
+    if (!stroke) return;
+    const p = toDevice(e); stroke.push(p);
+    const s = stroke; stroke = null;
+    setTimeout(draw, 250);
+    busy = busy.then(() => send(s)).catch((err) => status('Gesture failed: ' + err.message));
+  };
+  canvas.addEventListener('pointerup', finish);
+  canvas.addEventListener('pointercancel', finish);
+
+  async function send(points) {
+    if (!session) return;
+    const r = (v) => Math.max(0, Math.round(v));
+    const first = points[0], last = points[points.length - 1];
+    const moved = points.some((p) => Math.hypot(p.x - first.x, p.y - first.y) > 6);
+    const actions = [{ type: 'pointerMove', duration: 0, x: r(first.x), y: r(first.y) }, { type: 'pointerDown', button: 0 }];
+    if (!moved) {
+      actions.push({ type: 'pause', duration: Math.max(60, r(last.t - first.t)) });
+    } else {
+      for (let i = 1; i < points.length; i++) {
+        actions.push({ type: 'pointerMove', duration: Math.max(1, r(points[i].t - points[i - 1].t)), x: r(points[i].x), y: r(points[i].y) });
+      }
+    }
+    actions.push({ type: 'pointerUp', button: 0 });
+    await wda('POST', `/session/${session}/actions`, {
+      actions: [{ type: 'pointer', id: 'finger1', parameters: { pointerType: 'touch' }, actions }],
+    });
+  }
+
+  document.querySelectorAll('[data-app]').forEach((b) => b.onclick = () => {
+    busy = busy.then(() => wda('POST', `/session/${session}/wda/apps/launch`, { bundleId: b.dataset.app }))
+      .catch((err) => status('Launch failed: ' + err.message));
+  });
+  $('home').onclick = () => { busy = busy.then(() => wda('POST', '/wda/homescreen')).catch(() => {}); };
+  $('fps').onclick = () => setQuality(!smooth);
+  $('reload').onclick = () => { $('stream').src = '/stream?' + Date.now(); };
+  $('stream').onerror = () => setTimeout(() => { $('stream').src = '/stream?' + Date.now(); }, 2000);
+  addEventListener('resize', draw);
+  connect();
+})();
+</script>
+</body>
+</html>
