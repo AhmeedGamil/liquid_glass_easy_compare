@@ -5,13 +5,23 @@
 set -u
 KICK=/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart
 
-sudo dscl . -passwd /Users/runner "$VNC_PASSWORD"
+# dscl alone is refused for a user holding a SecureToken, so reset through
+# sysadminctl too, then check the Mac really takes the new password.
+sudo sysadminctl -resetPasswordFor runner -newPassword "$VNC_PASSWORD" 2>&1 | tail -2 || true
+sudo dscl . -passwd /Users/runner "$VNC_PASSWORD" 2>&1 || true
+if dscl . -authonly runner "$VNC_PASSWORD" 2>/dev/null; then
+  echo "runner login password set"
+else
+  echo "::warning::the runner login password did not change"
+fi
 
-# Keep the session from locking or sleeping under the viewer.
-sudo sysadminctl -screenLock off -password "$VNC_PASSWORD" 2>/dev/null || true
+# Keep the session from ever locking or sleeping, so no password is asked.
+sudo sysadminctl -screenLock off -password "$VNC_PASSWORD" 2>&1 || true
 defaults write com.apple.screensaver askForPassword -int 0
+defaults write com.apple.screensaver askForPasswordDelay -int 0
 defaults -currentHost write com.apple.screensaver idleTime -int 0
-sudo pmset -a displaysleep 0 sleep 0 2>/dev/null || true
+sudo defaults write /Library/Preferences/com.apple.screensaver loginWindowIdleTime -int 0
+sudo pmset -a displaysleep 0 sleep 0 disksleep 0 2>/dev/null || true
 
 # The classic VNC password is stored XOR'd with a fixed key.
 echo "$VNC_PASSWORD" | perl -we 'BEGIN { @k = unpack "C*", pack "H*", "1734516E8BA8C5E2FF1C39567390ADCA" }; $_ = <>; chomp; s/^(.{8}).*/$1/; @p = unpack "C*", $_; foreach (@k) { printf "%02X", $_ ^ (shift @p || 0) }; print "\n"' \

@@ -141,8 +141,10 @@ jobs:
         run: |
           IP=$(tailscale ip -4 2>/dev/null || true)
           echo "::notice title=Connect::VNC to lg-compare-mac ($IP) port 5900. Cancel this run to shut it down."
+          # Idle is what locks the screen; declare user activity all along.
+          caffeinate -dimsu &
           END=$(( $(date +%s) + ${{ inputs.live_minutes }} * 60 ))
           while [ "$(date +%s)" -lt "$END" ]; do
             echo "live, $(( (END - $(date +%s)) / 60 )) min left"
-            sleep 60
+            for _ in 1 2 3 4; do caffeinate -u -t 1; sleep 14; done
           done
