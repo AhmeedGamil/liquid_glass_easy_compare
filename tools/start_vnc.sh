@@ -7,6 +7,12 @@ KICK=/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resourc
 
 sudo dscl . -passwd /Users/runner "$VNC_PASSWORD"
 
+# Keep the session from locking or sleeping under the viewer.
+sudo sysadminctl -screenLock off -password "$VNC_PASSWORD" 2>/dev/null || true
+defaults write com.apple.screensaver askForPassword -int 0
+defaults -currentHost write com.apple.screensaver idleTime -int 0
+sudo pmset -a displaysleep 0 sleep 0 2>/dev/null || true
+
 # The classic VNC password is stored XOR'd with a fixed key.
 echo "$VNC_PASSWORD" | perl -we 'BEGIN { @k = unpack "C*", pack "H*", "1734516E8BA8C5E2FF1C39567390ADCA" }; $_ = <>; chomp; s/^(.{8}).*/$1/; @p = unpack "C*", $_; foreach (@k) { printf "%02X", $_ ^ (shift @p || 0) }; print "\n"' \
   | sudo tee /Library/Preferences/com.apple.VNCSettings.txt >/dev/null
