@@ -137,17 +137,25 @@ jobs:
             sleep 2
           done
           curl -s http://127.0.0.1:8100/status | head -c 400; echo
-          nohup python3 tools/remote.py --port 8080 > remote.log 2>&1 &
-          sleep 2
-          # Self-test through the same proxy the page uses.
+          nohup python3 tools/remote.py --port 8765 > remote.log 2>&1 &
+          for _ in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8765/ >/dev/null && break
+            sleep 1
+          done
+          # Self-test through the same proxy the page uses; a failure here
+          # is logged, not fatal, so the session still comes up.
           mkdir -p vnc-debug
-          SID=$(curl -s -X POST http://127.0.0.1:8080/wda/session -H 'Content-Type: application/json' \
-            -d '{"capabilities":{"alwaysMatch":{},"firstMatch":[{}]}}' | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('sessionId') or d['value']['sessionId'])")
-          echo "session $SID"
-          curl -s -X POST "http://127.0.0.1:8080/wda/session/$SID/wda/apps/launch" -H 'Content-Type: application/json' \
-            -d '{"bundleId":"dev.lgcompare.apple"}' | head -c 200; echo
-          curl -s --max-time 4 http://127.0.0.1:8080/stream -o vnc-debug/stream.mjpeg || true
+          curl -s -m 120 -X POST http://127.0.0.1:8765/wda/session -H 'Content-Type: application/json' \
+            -d '{"capabilities":{"alwaysMatch":{},"firstMatch":[{}]}}' -o session.json -w "session http %{http_code}\n" || true
+          head -c 300 session.json; echo
+          SID=$(python3 -c "import json; d=json.load(open('session.json')); print(d.get('sessionId') or d['value']['sessionId'])" 2>/dev/null || true)
+          if [ -n "$SID" ]; then
+            curl -s -m 60 -X POST "http://127.0.0.1:8765/wda/session/$SID/wda/apps/launch" -H 'Content-Type: application/json' \
+              -d '{"bundleId":"dev.lgcompare.apple"}' | head -c 200; echo
+          fi
+          curl -s --max-time 4 http://127.0.0.1:8765/stream -o vnc-debug/stream.mjpeg || true
           ls -la vnc-debug
+          cat remote.log
           tail -20 wda.log
 
       - name: Turn on screen sharing
@@ -170,11 +178,22 @@ jobs:
       - name: Stay up
         run: |
           IP=$(tailscale ip -4 2>/dev/null || true)
-          echo "::notice title=Connect::Browser: http://lg-compare-mac:8080 (or http://$IP:8080). VNC: port 5900. Cancel this run to shut it down."
+          echo "::notice title=Connect::Browser: http://lg-compare-mac:8765 (or http://$IP:8765). VNC: port 5900. Cancel this run to shut it down."
           # Idle is what locks the screen; declare user activity all along.
           caffeinate -dimsu &
           END=$(( $(date +%s) + ${{ inputs.live_minutes }} * 60 ))
           while [ "$(date +%s)" -lt "$END" ]; do
             echo "live, $(( (END - $(date +%s)) / 60 )) min left"
+            # Bring the browser remote back if either half has died.
+            if ! curl -sf -m 5 http://127.0.0.1:8100/status >/dev/null; then
+              echo "restarting WebDriverAgent"
+              nohup xcodebuild test-without-building \
+                -project build/WebDriverAgent/WebDriverAgent.xcodeproj -scheme WebDriverAgentRunner \
+                -destination "id=$UDID" -derivedDataPath build/wda >> wda.log 2>&1 &
+            fi
+            if ! curl -sf -m 5 http://127.0.0.1:8765/ >/dev/null; then
+              echo "restarting the remote page"
+              nohup python3 tools/remote.py --port 8765 >> remote.log 2>&1 &
+            fi
             for _ in 1 2 3 4; do caffeinate -u -t 1; sleep 14; done
           done
