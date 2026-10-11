@@ -110,7 +110,9 @@ class _BandBackdrop extends StatelessWidget {
             width: double.infinity,
             height: double.infinity,
           ),
-        Backdrop.stripes => const CustomPaint(painter: _Stripes()),
+        Backdrop.stripes => const SizedBox.expand(
+          child: CustomPaint(painter: _Stripes()),
+        ),
       },
     );
   }

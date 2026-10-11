@@ -25,7 +25,7 @@ class AppleSwitch extends StatelessWidget {
       value: value,
       onChanged: onChanged,
       activeColor: activeColor ?? const Color(0xFF34C759),
-      inactiveColor: dark ? const Color(0x5C787880) : const Color(0x29787880),
+      inactiveColor: dark ? const Color(0xA3787880) : const Color(0x6B787880),
       style: styleFor(brightness),
     );
   }

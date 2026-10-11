@@ -76,7 +76,6 @@ class _TabBarSceneState extends State<TabBarScene> {
           items: _items,
           selectedIndex: i,
           onChanged: set,
-          width: _width,
         ),
     };
   }

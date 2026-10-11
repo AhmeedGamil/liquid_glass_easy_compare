@@ -32,8 +32,8 @@ class _SliderSceneState extends State<SliderScene> {
           for (int i = 0; i < 2; i++) ...[
             if (i > 0) const SizedBox(height: 28),
             SizedBox(
-              width: _width + 40,
-              height: 44,
+              width: _width + 100,
+              height: 60,
               child: Center(child: _slider(band, i)),
             ),
           ],

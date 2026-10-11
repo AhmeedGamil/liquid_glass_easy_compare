@@ -44,7 +44,15 @@ class _SwitchSceneState extends State<SwitchScene> {
     final bool v = _values[band]![i];
     void set(bool x) => setState(() => _values[band]![i] = x);
     return switch (band) {
-      Band.apple => CNSwitch(value: v, onChanged: set),
+      Band.apple => CNSwitch(
+          value: v,
+          onChanged: set,
+          // The plugin otherwise tints with the accent colour; iOS's
+          // own default is system green.
+          color: Theme.of(context).brightness == Brightness.dark
+              ? const Color(0xFF30D158)
+              : const Color(0xFF34C759),
+        ),
       Band.package => LiquidGlassSwitch(value: v, onChanged: set),
       Band.match => AppleSwitch(value: v, onChanged: set),
     };

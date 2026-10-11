@@ -69,6 +69,8 @@ class ButtonsScene extends StatelessWidget {
         Band.apple => CNButton(
             label: 'Prominent',
             style: CNButtonStyle.prominentGlass,
+            // Without a tint the plugin falls back to the label colour.
+            tint: const Color(0xFF0088FF),
             height: _height,
             onPressed: () {},
           ),

@@ -24,10 +24,15 @@ for look in light dark; do
   xcrun simctl ui "$UDID" appearance "$look"
   for scene in "${SCENES[@]}"; do
     xcrun simctl terminate "$UDID" "$BUNDLE" 2>/dev/null || true
-    SIMCTL_CHILD_SCENE="$scene" xcrun simctl launch "$UDID" "$BUNDLE" >/dev/null
-    # Debug build: the first frame, the platform views and the glass all
-    # need a moment.
-    sleep 9
+    xcrun simctl launch "$UDID" "$BUNDLE" >/dev/null
+    # The debug app switches scenes on its localhost endpoint (launch
+    # environment variables do not reach it).
+    for _ in $(seq 1 30); do
+      curl -sf "http://127.0.0.1:8790/scene?name=$scene" >/dev/null && break
+      sleep 1
+    done
+    # The platform views and the glass need a moment after the switch.
+    sleep 4
     xcrun simctl io "$UDID" screenshot "$OUT/$look/$scene.png" >/dev/null
     echo "shot $look/$scene"
   done
