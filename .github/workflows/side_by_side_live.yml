@@ -1,0 +1,84 @@
+name: Side by side live
+
+# Keeps side_by_side running under `flutter run` on the iOS Simulator and
+# serves tools/live_server.py through a Cloudflare quick tunnel, so tweaks
+# hot reload and screenshots come back over HTTP. The tunnel URL is pushed
+# to the `live` branch (live/url.txt); every request needs the LIVE_KEY
+# secret in an X-Key header.
+
+on:
+  workflow_dispatch:
+    inputs:
+      package_ref:
+        description: liquid_glass_easy branch, tag or commit
+        type: string
+        default: main
+      minutes:
+        description: How long the session stays up (POST /stop ends it sooner)
+        type: number
+        default: 150
+      device:
+        type: string
+        default: iPhone 17 Pro
+      flutter_version:
+        type: string
+        default: 3.41.2
+
+permissions:
+  contents: write
+
+jobs:
+  live:
+    runs-on: macos-26
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pick the newest Xcode 26
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE" ]; then XCODE=$(xcode-select -p | sed 's#/Contents/Developer##'); fi
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ inputs.flutter_version }}
+          channel: stable
+          cache: true
+
+      - name: Boot the simulator
+        run: |
+          UDID=$(python3 tools/boot_sim.py "${{ inputs.device }}")
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl status_bar "$UDID" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3
+          xcrun simctl ui "$UDID" appearance light
+
+      - name: Resolve packages
+        working-directory: side_by_side
+        run: |
+          rm -f pubspec_overrides.yaml
+          sed -i '' "s#^      ref: .*#      ref: ${{ inputs.package_ref }}#" pubspec.yaml
+          flutter pub get
+
+      - name: Open the tunnel and publish its URL
+        run: |
+          brew install cloudflared >/dev/null
+          nohup cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8787 > tunnel.log 2>&1 &
+          for _ in $(seq 1 60); do
+            URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' tunnel.log | head -1 || true)
+            [ -n "$URL" ] && break
+            sleep 2
+          done
+          echo "tunnel: $URL"
+          mkdir -p /tmp/live && cd /tmp/live
+          git init -q -b live
+          printf '%s\n%s\n' "$URL" "${{ github.run_id }}" > url.txt
+          git add url.txt
+          git -c user.name=live -c user.email=live@localhost commit -q -m "Live session ${{ github.run_id }}"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" live
+
+      - name: Serve
+        env:
+          LIVE_KEY: ${{ secrets.LIVE_KEY }}
+        run: python3 tools/live_server.py --udid "$UDID" --key "$LIVE_KEY" --minutes ${{ inputs.minutes }}

@@ -1,6 +1,9 @@
-import 'dart:io' show Platform;
+import 'dart:async';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import 'scenes/buttons_scene.dart';
@@ -56,11 +59,58 @@ class _RootState extends State<_Root> {
   // without it the app opens on the scene list.
   String? _scene = Platform.environment['SCENE'];
 
+  HttpServer? _server;
+
+  @override
+  void initState() {
+    super.initState();
+    if (kDebugMode) _serve();
+  }
+
+  @override
+  void dispose() {
+    _server?.close(force: true);
+    super.dispose();
+  }
+
+  // Debug only: the live tuning server on the Mac switches scenes through
+  // GET http://127.0.0.1:8790/scene?name=<scene>, answered once the new
+  // scene has painted.
+  Future<void> _serve() async {
+    try {
+      _server = await HttpServer.bind(
+        InternetAddress.loopbackIPv4,
+        8790,
+        shared: true,
+      );
+    } on SocketException {
+      return;
+    }
+    await for (final HttpRequest req in _server!) {
+      final String? name = req.uri.queryParameters['name'];
+      if (req.uri.path == '/scene' && kScenes.containsKey(name)) {
+        setState(() => _scene = name);
+        await SchedulerBinding.instance.endOfFrame;
+        await SchedulerBinding.instance.endOfFrame;
+        req.response.write('ok');
+      } else {
+        req.response.statusCode = HttpStatus.notFound;
+        req.response.write('scenes: ${kScenes.keys.join(' ')}');
+      }
+      await req.response.close();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final WidgetBuilder? scene = kScenes[_scene];
     if (scene != null) {
-      return Scaffold(body: Builder(builder: scene));
+      return Scaffold(
+        body: KeyedSubtree(
+          key: ValueKey(_scene),
+          child: Builder(builder: scene),
+        ),
+      );
     }
     return Scaffold(
       body: SafeArea(
