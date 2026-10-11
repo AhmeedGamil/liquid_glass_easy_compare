@@ -1,0 +1,30 @@
+name: side_by_side
+description: "Apple's native iOS 26 controls next to liquid_glass_easy, for matching the look."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  # Apple's real controls (UIKit/SwiftUI platform views). Vendored so the
+  # controls keep their system colours: upstream forces the Flutter
+  # theme's primary colour onto every control as a tint.
+  cupertino_native:
+    path: third_party/cupertino_native
+  # The workflow rewrites `ref` to its `package_ref` input.
+  liquid_glass_easy:
+    git:
+      url: https://github.com/AhmeedGamil/liquid_glass_easy.git
+      ref: main
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/backgrounds/

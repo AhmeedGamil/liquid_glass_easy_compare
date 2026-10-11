@@ -1,0 +1,80 @@
+name: Side by side
+
+# Apple's native iOS 26 controls (cupertino_native platform views) above the
+# liquid_glass_easy components and their apple_match tuning, screenshotted
+# on the iOS Simulator in light and dark.
+
+on:
+  workflow_dispatch:
+    inputs:
+      package_ref:
+        description: liquid_glass_easy branch, tag or commit
+        type: string
+        default: main
+      scenes:
+        description: Space-separated scene names (empty = all)
+        type: string
+        default: ""
+      device:
+        type: string
+        default: iPhone 17 Pro
+      flutter_version:
+        type: string
+        default: 3.41.2
+  push:
+    branches: [main]
+    paths:
+      - side_by_side/**
+      - tools/shoot_bands.sh
+      - .github/workflows/side_by_side.yml
+
+permissions:
+  contents: read
+
+jobs:
+  shoot:
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      PACKAGE_REF: ${{ inputs.package_ref || 'main' }}
+      DEVICE: ${{ inputs.device || 'iPhone 17 Pro' }}
+      SCENES: ${{ inputs.scenes }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pick the newest Xcode 26
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE" ]; then XCODE=$(xcode-select -p | sed 's#/Contents/Developer##'); fi
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ inputs.flutter_version || '3.41.2' }}
+          channel: stable
+          cache: true
+
+      - name: Boot the simulator
+        run: |
+          UDID=$(python3 tools/boot_sim.py "$DEVICE")
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl status_bar "$UDID" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3
+
+      - name: Build the app
+        working-directory: side_by_side
+        run: |
+          rm -f pubspec_overrides.yaml
+          sed -i '' "s#^      ref: .*#      ref: $PACKAGE_REF#" pubspec.yaml
+          flutter pub get
+          grep -A6 "liquid_glass_easy:" pubspec.lock | grep resolved-ref
+          flutter build ios --simulator --debug
+          xcrun simctl install "$UDID" build/ios/iphonesimulator/Runner.app
+
+      - name: Shoot every scene
+        run: bash tools/shoot_bands.sh "$UDID" shots $SCENES
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shots
+          path: shots
