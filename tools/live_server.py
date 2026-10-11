@@ -11,6 +11,13 @@ Every request needs the header `X-Key: <secret>`.
     GET  /shot?scene=<name>&look=light|dark&settle=1.5     PNG of the screen
     GET  /log?lines=200     tail of the flutter run output
     POST /stop              end the session (the job then finishes)
+
+    GET  /                  the tuner page (tools/tuner.html), no key needed
+    GET  /api/tune          every apple_match knob with its value
+    POST /api/tune          {id: value} changes knobs   POST /api/tune/reset
+    GET  /api/shot          like /shot; fmt=jpg&w=<px> shrinks it
+
+The key may also come as `?k=<secret>`.
 """
 
 import argparse
@@ -23,6 +30,8 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+TUNER_PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tuner.html")
+APP = "http://127.0.0.1:8790"
 APP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "side_by_side"))
 LIB_DIR = os.path.join(APP_DIR, "lib")
 
@@ -92,29 +101,51 @@ def make_handler(flutter, udid, key, state):
             self.wfile.write(data)
 
         def _authed(self):
-            if hmac.compare_digest(self.headers.get("X-Key", ""), key):
+            given = self.headers.get("X-Key") or parse_qs(urlparse(self.path).query).get("k", [""])[0]
+            if hmac.compare_digest(given, key):
                 return True
             self._reply(403, "bad key")
             return False
 
+        def _app(self, method, path, body=None):
+            req = urllib.request.Request(APP + path, data=body, method=method,
+                                         headers={"Content-Type": "application/json"})
+            try:
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    self._reply(200, r.read(), r.headers.get("Content-Type", "text/plain"))
+            except Exception as e:  # noqa: BLE001
+                self._reply(502, f"app: {e}")
+
         def do_GET(self):
+            u = urlparse(self.path)
+            if u.path in ("/", "/tuner"):
+                with open(TUNER_PAGE, "rb") as f:
+                    self._reply(200, f.read(), "text/html; charset=utf-8")
+                return
             if not self._authed():
                 return
-            u = urlparse(self.path)
             q = {k: v[0] for k, v in parse_qs(u.query).items()}
-            if u.path == "/log":
-                self._reply(200, flutter.tail(int(q.get("lines", 200))))
-            elif u.path == "/shot":
+            if u.path == "/api/tune":
+                self._app("GET", "/tune")
+            elif u.path in ("/shot", "/api/shot"):
                 self._shot(q)
+            elif u.path == "/log":
+                self._reply(200, flutter.tail(int(q.get("lines", 200))))
             else:
                 self._reply(404, "unknown")
 
         def _shot(self, q):
+            # One screenshot at a time: each one switches theme and scene.
+            with state["shot_lock"]:
+                self._shot_locked(q)
+
+        def _shot_locked(self, q):
             look = q.get("look")
             if look in ("light", "dark") and look != state.get("look"):
                 subprocess.run(["xcrun", "simctl", "ui", udid, "appearance", look])
                 state["look"] = look
-                time.sleep(0.8)
+                # The native views pick up a theme change late.
+                time.sleep(3)
             scene = q.get("scene")
             if scene:
                 try:
@@ -128,10 +159,18 @@ def make_handler(flutter, udid, key, state):
             path = f"/tmp/shot-{time.time_ns()}.png"
             subprocess.run(["xcrun", "simctl", "io", udid, "screenshot", path],
                            capture_output=True)
+            ctype = "image/png"
+            if q.get("fmt") == "jpg":
+                jpg = path[:-4] + ".jpg"
+                subprocess.run(["sips", "-s", "format", "jpeg", "-s", "formatOptions", "80",
+                                "--resampleWidth", q.get("w", "800"), path, "--out", jpg],
+                               capture_output=True)
+                os.remove(path)
+                path, ctype = jpg, "image/jpeg"
             with open(path, "rb") as f:
                 data = f.read()
             os.remove(path)
-            self._reply(200, data, "image/png")
+            self._reply(200, data, ctype)
 
         def do_POST(self):
             if not self._authed():
@@ -139,7 +178,11 @@ def make_handler(flutter, udid, key, state):
             u = urlparse(self.path)
             q = {k: v[0] for k, v in parse_qs(u.query).items()}
             body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
-            if u.path == "/file":
+            if u.path == "/api/tune":
+                self._app("POST", "/tune", body)
+            elif u.path == "/api/tune/reset":
+                self._app("POST", "/tune/reset", b"")
+            elif u.path == "/file":
                 target = os.path.abspath(os.path.join(APP_DIR, q.get("path", "")))
                 if not target.startswith(LIB_DIR + os.sep) or not target.endswith(".dart"):
                     self._reply(400, "only .dart files under lib/")
@@ -176,7 +219,7 @@ def main():
     args = ap.parse_args()
 
     flutter = Flutter(args.udid)
-    state = {"stop": threading.Event(), "look": None}
+    state = {"stop": threading.Event(), "look": None, "shot_lock": threading.Lock()}
     # Served from the start, so /log shows the first build as it goes.
     server = ThreadingHTTPServer(("127.0.0.1", args.port),
                                  make_handler(flutter, args.udid, args.key, state))

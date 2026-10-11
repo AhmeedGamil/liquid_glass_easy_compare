@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 
+import 'apple_match_tuning.dart';
+
 /// A slider tuned to read like iOS 26's `UISlider`.
 class AppleSlider extends StatelessWidget {
   const AppleSlider({
@@ -23,7 +25,11 @@ class AppleSlider extends StatelessWidget {
 
   /// The layout whose track is [trackWidth] long.
   static LiquidGlassSliderLayout layoutFor(double trackWidth) {
-    const LiquidGlassSliderLayout base = LiquidGlassSliderLayout();
+    final LiquidGlassSliderLayout base = LiquidGlassSliderLayout(
+      trackHeight: AppleMatchTuning.d('slider.trackHeight'),
+      thumbWidth: AppleMatchTuning.d('slider.thumbWidth'),
+      thumbHeight: AppleMatchTuning.d('slider.thumbHeight'),
+    );
     final double inset = base.resolveHorizontalInset(motion.maxDeformation);
     return base.copyWith(width: trackWidth + inset * 2);
   }
@@ -32,22 +38,24 @@ class AppleSlider extends StatelessWidget {
   /// not dropped below it, and lighter.
   static LiquidGlassStyle styleFor(Brightness brightness) =>
       LiquidGlassSlider.defaultStyle.copyWith(
-        shadow: const LiquidGlassShadow(
-          blur: 8,
-          opacity: 0.12,
-          offset: Offset.zero,
+        shadow: LiquidGlassShadow(
+          blur: AppleMatchTuning.d('slider.shadowBlur'),
+          opacity: AppleMatchTuning.d('slider.shadowOpacity'),
+          offset: Offset(0, AppleMatchTuning.d('slider.shadowOffset')),
         ),
       );
 
   @override
   Widget build(BuildContext context) {
+    AppleMatchTuning.watch(context);
     final Brightness brightness = Theme.of(context).brightness;
     final bool dark = brightness == Brightness.dark;
     return LiquidGlassSlider(
       value: value,
       onChanged: onChanged,
-      activeColor: activeColor ?? const Color(0xFF0088FF),
-      inactiveColor: dark ? const Color(0x3B787880) : const Color(0x2B787880),
+      activeColor: activeColor ?? AppleMatchTuning.c('slider.active'),
+      inactiveColor: AppleMatchTuning.c(
+          dark ? 'slider.inactiveDark' : 'slider.inactiveLight'),
       layout: layoutFor(width),
       style: styleFor(brightness),
     );

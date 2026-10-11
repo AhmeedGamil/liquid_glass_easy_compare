@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Apple Match Tuner</title>
+<style>
+  :root {
+    --bg: #f2f2f7; --card: #ffffff; --ink: #1c1c1e; --muted: #6e6e73;
+    --line: #d8d8de; --accent: #0a84ff; --apple: #d70015; --ours: #6e6e73;
+    --match: #0071e3; --chip: #e9e9ee; --warn: #b25000;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #000; --card: #1c1c1e; --ink: #f2f2f7; --muted: #98989f;
+      --line: #38383a; --chip: #2c2c2e; --apple: #ff453a; --match: #409cff; --warn: #ff9f0a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--bg);
+    padding: 10px 16px 8px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: 17px; margin: 0 0 8px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  select, button, input[type=text], input[type=number] {
+    font: inherit; color: var(--ink); background: var(--card);
+    border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; }
+  button { cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; padding: 7px 12px; }
+  .seg button.on { background: var(--ink); color: var(--bg); }
+  .status { font-size: 13px; color: var(--muted); min-height: 18px; margin-top: 6px; }
+  .status.err { color: var(--warn); }
+  main { padding: 12px 16px 80px; max-width: 1100px; margin: 0 auto; }
+  .layout { display: grid; gap: 16px; }
+  @media (min-width: 900px) { .layout { grid-template-columns: 420px 1fr; align-items: start; }
+    .shotcol { position: sticky; top: 120px; } }
+  .shotwrap { background: var(--card); border-radius: 16px; padding: 10px; border: 1px solid var(--line); }
+  .legend { display: flex; flex-direction: column; gap: 2px; font-size: 13px; margin-bottom: 8px; }
+  .legend b.apple { color: var(--apple); } .legend b.ours { color: var(--ours); } .legend b.match { color: var(--match); }
+  .shot { position: relative; }
+  .shot img { width: 100%; display: block; border-radius: 10px; background: var(--chip); min-height: 200px; }
+  .shot .tag { position: absolute; left: 8px; font-size: 11px; font-weight: 700; letter-spacing: .5px;
+    padding: 2px 6px; border-radius: 6px; color: #fff; }
+  .tag.t1 { top: 6%; background: var(--apple); } .tag.t2 { top: 39.5%; background: #636366; }
+  .tag.t3 { top: 73%; background: var(--match); }
+  .shot.busy img { opacity: .55; }
+  details { background: var(--card); border: 1px solid var(--line); border-radius: 14px; margin-bottom: 12px; }
+  summary { padding: 12px 14px; font-weight: 600; cursor: pointer; list-style: none; display: flex; justify-content: space-between; }
+  summary::-webkit-details-marker { display: none; }
+  summary .count { color: var(--match); font-weight: 500; font-size: 13px; }
+  .knob { padding: 8px 14px 10px; border-top: 1px solid var(--line); }
+  .knob .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .knob label { font-size: 14px; }
+  .knob.changed label { color: var(--match); font-weight: 600; }
+  .knob .ctl { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+  .knob input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
+  .knob input[type=number] { width: 86px; padding: 5px 6px; }
+  .knob input[type=color] { width: 44px; height: 34px; border: 1px solid var(--line); border-radius: 8px; padding: 0; background: none; }
+  .knob input[type=text] { width: 112px; padding: 5px 6px; font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+  .reset { border: 0; background: none; color: var(--muted); padding: 2px 6px; font-size: 13px; }
+  .alpha { font-size: 12px; color: var(--muted); width: 42px; text-align: right; }
+  textarea { width: 100%; min-height: 120px; font: 12px ui-monospace, Menlo, monospace; color: var(--ink);
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px; }
+  .keybox { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin: 16px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Apple Match Tuner</h1>
+  <div class="row">
+    <select id="comp" aria-label="Component">
+      <option value="buttons">Buttons</option>
+      <option value="tabbar">Tab bar</option>
+      <option value="slider">Slider</option>
+      <option value="switch">Switch</option>
+    </select>
+    <select id="backdrop" aria-label="Background"></select>
+    <div class="seg" id="look">
+      <button data-v="light" class="on">Light</button><button data-v="dark">Dark</button>
+    </div>
+    <button class="primary" id="shoot">Screenshot</button>
+  </div>
+  <div class="status" id="status">Connecting…</div>
+</header>
+
+<div id="needkey" class="keybox" hidden>
+  <p>This page needs the session key. Open the link you were sent (it carries the key), or paste it here:</p>
+  <div class="row"><input type="text" id="keyin" placeholder="key" style="flex:1"><button class="primary" id="keysave">Use key</button></div>
+</div>
+
+<main id="app" hidden>
+  <div class="layout">
+    <div class="shotcol">
+      <div class="shotwrap">
+        <div class="legend">
+          <span><b class="apple">1 · APPLE</b> — real iOS control (Cupertino native)</span>
+          <span><b class="ours">2 · OURS</b> — liquid_glass_easy defaults</span>
+          <span><b class="match">3 · TUNED</b> — your values (apple_match)</span>
+        </div>
+        <div class="shot" id="shotbox">
+          <img id="shot" alt="Simulator screenshot: Apple on top, package defaults in the middle, tuned version at the bottom">
+          <span class="tag t1">1 APPLE</span><span class="tag t2">2 OURS</span><span class="tag t3">3 TUNED</span>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="row" style="margin-bottom:12px">
+        <label><input type="checkbox" id="auto" checked> Screenshot after every change</label>
+      </div>
+      <div id="knobs"></div>
+      <details>
+        <summary>Your values <span class="count" id="nchanged"></span></summary>
+        <div class="knob">
+          <p style="margin:0 0 8px;color:var(--muted);font-size:13px">Only the knobs you changed. They are also kept in this browser, and Claude can read them from the session.</p>
+          <textarea id="export" readonly></textarea>
+          <div class="row" style="margin-top:8px">
+            <button id="copy">Copy</button>
+            <button id="resetall">Reset everything</button>
+          </div>
+        </div>
+      </details>
+    </div>
+  </div>
+</main>
+
+<script>
+const BACKDROPS = {
+  buttons: [['photo','Photo'],['stripes','Stripes'],['page','Plain page']],
+  tabbar: [['photo','Photo'],['stripes','Stripes'],['page','Plain page']],
+  slider: [['page','Plain page'],['photo','Photo']],
+  switch: [['page','Plain page'],['photo','Photo']],
+};
+// Which knob groups matter for each component; those open by default.
+const GROUPS = {
+  buttons: ['Glass material (buttons + tab bar)', 'Button'],
+  tabbar: ['Tab bar', 'Glass material (buttons + tab bar)'],
+  slider: ['Slider'],
+  switch: ['Switch'],
+};
+const SAVE = 'appleMatchTuner.values';
+
+let KEY = '';
+try { KEY = new URLSearchParams(location.hash.slice(1)).get('k') || localStorage.getItem('appleMatchTuner.key') || ''; } catch (e) {}
+let knobs = [];
+let look = 'light';
+let pending = {};
+let timer = null;
+let busy = false, again = false;
+let lastUrl = null;
+
+const $ = (id) => document.getElementById(id);
+const status = (t, err) => { const s = $('status'); s.textContent = t; s.classList.toggle('err', !!err); };
+
+async function api(path, opts = {}) {
+  opts.headers = Object.assign({ 'X-Key': KEY }, opts.headers || {});
+  const r = await fetch(path, opts);
+  if (r.status === 403) throw new Error('key');
+  if (!r.ok) throw new Error((await r.text()).slice(0, 200) || r.status);
+  return r;
+}
+
+function argbToHex(v) { return '#' + (v & 0xffffff).toString(16).padStart(6, '0'); }
+function argbAlpha(v) { return (v >>> 24) & 0xff; }
+function hex8(v) { return '#' + (v >>> 0).toString(16).padStart(8, '0').toUpperCase(); }
+function makeArgb(rgbHex, alpha) { return ((alpha & 0xff) * 0x1000000) + parseInt(rgbHex.slice(1), 16); }
+function fmt(k, v) { return k.step >= 1 ? String(Math.round(v)) : String(+(+v).toFixed(3)); }
+
+function saved() { try { return JSON.parse(localStorage.getItem(SAVE) || '{}'); } catch (e) { return {}; } }
+function save() {
+  const out = {};
+  for (const k of knobs) if (k.value !== k.def) out[k.id] = k.value;
+  try { localStorage.setItem(SAVE, JSON.stringify(out)); } catch (e) {}
+  const lines = Object.entries(out).map(([id, v]) => {
+    const k = knobs.find((x) => x.id === id);
+    return `${id}: ${k.kind === 'color' ? hex8(v) : v}   (was ${k.kind === 'color' ? hex8(k.def) : k.def})`;
+  });
+  $('export').value = lines.length ? JSON.stringify(out) + '\n\n' + lines.join('\n') : 'Nothing changed yet.';
+  $('nchanged').textContent = lines.length ? lines.length + ' changed' : '';
+}
+
+function render() {
+  const comp = $('comp').value;
+  const wanted = GROUPS[comp];
+  const groups = [...new Set(knobs.map((k) => k.group))];
+  groups.sort((a, b) => (wanted.indexOf(a) < 0 ? 99 : wanted.indexOf(a)) - (wanted.indexOf(b) < 0 ? 99 : wanted.indexOf(b)));
+  const box = $('knobs'); box.innerHTML = '';
+  for (const g of groups) {
+    const d = document.createElement('details');
+    d.open = wanted.includes(g);
+    const changed = knobs.filter((k) => k.group === g && k.value !== k.def).length;
+    d.innerHTML = `<summary>${g}<span class="count">${changed ? changed + ' changed' : ''}</span></summary>`;
+    for (const k of knobs.filter((x) => x.group === g)) d.appendChild(knobRow(k));
+    box.appendChild(d);
+  }
+  save();
+}
+
+function knobRow(k) {
+  const el = document.createElement('div');
+  el.className = 'knob' + (k.value !== k.def ? ' changed' : '');
+  const id = 'k_' + k.id.replace('.', '_');
+  if (k.kind === 'color') {
+    el.innerHTML = `<div class="top"><label for="${id}">${k.label}</label><button class="reset" title="Back to tuned default">↺ reset</button></div>
+      <div class="ctl"><input type="color" id="${id}"><input type="range" min="0" max="255" step="1" aria-label="${k.label} opacity"><span class="alpha"></span><input type="text" aria-label="${k.label} ARGB hex"></div>`;
+    const [pick, alpha, a, text] = el.querySelectorAll('input[type=color], input[type=range], .alpha, input[type=text]');
+    const show = () => { pick.value = argbToHex(k.value); alpha.value = argbAlpha(k.value);
+      a.textContent = Math.round(argbAlpha(k.value) / 2.55) + '%'; text.value = hex8(k.value); };
+    show();
+    const set = (v) => { k.value = v; show(); changed(k, el); };
+    pick.oninput = () => set(makeArgb(pick.value, +alpha.value));
+    alpha.oninput = () => set(makeArgb(pick.value, +alpha.value));
+    text.onchange = () => { const h = text.value.replace('#', '').trim();
+      if (/^[0-9a-f]{8}$/i.test(h)) set(parseInt(h, 16)); else if (/^[0-9a-f]{6}$/i.test(h)) set(makeArgb('#' + h, 255)); else show(); };
+    el.querySelector('.reset').onclick = () => set(k.def);
+  } else {
+    el.innerHTML = `<div class="top"><label for="${id}">${k.label}</label><button class="reset" title="Back to tuned default">↺ ${fmt(k, k.def)}</button></div>
+      <div class="ctl"><input type="range" id="${id}" min="${k.min}" max="${k.max}" step="${k.step}"><input type="number" min="${k.min}" max="${k.max}" step="${k.step}" aria-label="${k.label} value"></div>`;
+    const [range, num] = el.querySelectorAll('input');
+    const show = () => { range.value = k.value; num.value = fmt(k, k.value); };
+    show();
+    const set = (v) => { if (isNaN(v)) return show(); k.value = +(+v).toFixed(4); show(); changed(k, el); };
+    range.oninput = () => set(+range.value);
+    num.onchange = () => set(+num.value);
+    el.querySelector('.reset').onclick = () => set(k.def);
+  }
+  return el;
+}
+
+function changed(k, el) {
+  el.classList.toggle('changed', k.value !== k.def);
+  pending[k.id] = k.value;
+  save();
+  const det = el.closest('details');
+  const n = knobs.filter((x) => x.group === k.group && x.value !== x.def).length;
+  det.querySelector('.count').textContent = n ? n + ' changed' : '';
+  clearTimeout(timer);
+  timer = setTimeout(push, 450);
+}
+
+async function push() {
+  const changes = pending; pending = {};
+  if (!Object.keys(changes).length) return;
+  try {
+    status('Applying…');
+    await api('/api/tune', { method: 'POST', body: JSON.stringify(changes) });
+    if ($('auto').checked) shoot(); else status('Applied. Tap Screenshot to see it.');
+  } catch (e) { status('Could not apply: ' + e.message, true); }
+}
+
+async function shoot() {
+  if (busy) { again = true; return; }
+  busy = true; $('shotbox').classList.add('busy');
+  const scene = $('comp').value + '_' + $('backdrop').value;
+  try {
+    status(`Taking ${look} screenshot of ${scene.replace('_', ' / ')}…` + (look === 'dark' ? ' (theme switches take a few seconds)' : ''));
+    const w = Math.min(1206, Math.round(Math.max(600, $('shot').clientWidth * (window.devicePixelRatio || 1))));
+    const r = await api(`/api/shot?scene=${scene}&look=${look}&fmt=jpg&w=${w}&settle=1.2`);
+    const url = URL.createObjectURL(await r.blob());
+    $('shot').src = url; if (lastUrl) URL.revokeObjectURL(lastUrl); lastUrl = url;
+    status('Updated ' + new Date().toLocaleTimeString());
+  } catch (e) {
+    status(e.message === 'key' ? 'Wrong key.' : 'Screenshot failed: ' + e.message, true);
+  }
+  busy = false; $('shotbox').classList.remove('busy');
+  if (again) { again = false; shoot(); }
+}
+
+function fillBackdrops() {
+  const sel = $('backdrop'), cur = sel.value; sel.innerHTML = '';
+  for (const [v, l] of BACKDROPS[$('comp').value]) sel.add(new Option(l, v));
+  if ([...sel.options].some((o) => o.value === cur)) sel.value = cur;
+}
+
+async function start() {
+  if (!KEY) { $('needkey').hidden = false; status('Key needed.', true); return; }
+  try { localStorage.setItem('appleMatchTuner.key', KEY); } catch (e) {}
+  try {
+    knobs = await (await api('/api/tune')).json();
+  } catch (e) {
+    if (e.message === 'key') { $('needkey').hidden = false; status('Wrong key.', true); }
+    else status('The app is not reachable yet (still building?). Retrying…', true);
+    if (e.message !== 'key') setTimeout(start, 8000);
+    return;
+  }
+  $('needkey').hidden = true; $('app').hidden = false;
+  // The app forgets values when it restarts; this browser does not.
+  const mine = saved();
+  const lost = Object.entries(mine).filter(([id, v]) => { const k = knobs.find((x) => x.id === id); return k && k.value !== v; });
+  if (lost.length && knobs.every((k) => k.value === k.def)) {
+    for (const [id, v] of lost) { knobs.find((x) => x.id === id).value = v; pending[id] = v; }
+    await push();
+  }
+  fillBackdrops(); render();
+  if (!lost.length) shoot();
+}
+
+$('comp').onchange = () => { fillBackdrops(); render(); shoot(); };
+$('backdrop').onchange = shoot;
+$('shoot').onclick = shoot;
+for (const b of document.querySelectorAll('#look button')) b.onclick = () => {
+  look = b.dataset.v;
+  for (const x of document.querySelectorAll('#look button')) x.classList.toggle('on', x === b);
+  shoot();
+};
+$('copy').onclick = async () => { try { await navigator.clipboard.writeText($('export').value); status('Copied.'); } catch (e) { $('export').select(); } };
+$('resetall').onclick = async () => {
+  if (!confirm('Reset every knob to the tuned defaults?')) return;
+  for (const k of knobs) k.value = k.def;
+  pending = {}; render();
+  try { await api('/api/tune/reset', { method: 'POST' }); shoot(); } catch (e) { status('Reset failed: ' + e.message, true); }
+};
+$('keysave').onclick = () => { KEY = $('keyin').value.trim(); start(); };
+start();
+</script>
+</body>
+</html>

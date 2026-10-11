@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -10,6 +11,7 @@ import 'scenes/buttons_scene.dart';
 import 'scenes/slider_scene.dart';
 import 'scenes/switch_scene.dart';
 import 'scenes/tab_bar_scene.dart';
+import 'apple_match/apple_match_tuning.dart';
 import 'bands.dart';
 
 void main() {
@@ -73,9 +75,12 @@ class _RootState extends State<_Root> {
     super.dispose();
   }
 
-  // Debug only: the live tuning server on the Mac switches scenes through
-  // GET http://127.0.0.1:8790/scene?name=<scene>, answered once the new
-  // scene has painted.
+  // Debug only: the live tuning server on the Mac drives the app through
+  // http://127.0.0.1:8790 —
+  //   GET  /scene?name=<scene>   switch scenes
+  //   GET  /tune                 every apple_match knob with its value
+  //   POST /tune  {id: value}    change knobs; POST /tune/reset drops them
+  // Changes are answered once they have painted.
   Future<void> _serve() async {
     try {
       _server = await HttpServer.bind(
@@ -87,18 +92,42 @@ class _RootState extends State<_Root> {
       return;
     }
     await for (final HttpRequest req in _server!) {
-      final String? name = req.uri.queryParameters['name'];
-      if (req.uri.path == '/scene' && kScenes.containsKey(name)) {
-        setState(() => _scene = name);
-        await SchedulerBinding.instance.endOfFrame;
-        await SchedulerBinding.instance.endOfFrame;
-        req.response.write('ok');
-      } else {
-        req.response.statusCode = HttpStatus.notFound;
-        req.response.write('scenes: ${kScenes.keys.join(' ')}');
+      try {
+        await _handle(req);
+      } catch (e) {
+        req.response.statusCode = HttpStatus.internalServerError;
+        req.response.write('$e');
       }
       await req.response.close();
     }
+  }
+
+  Future<void> _handle(HttpRequest req) async {
+    final String path = req.uri.path;
+    if (path == '/scene') {
+      final String? name = req.uri.queryParameters['name'];
+      if (!kScenes.containsKey(name)) {
+        req.response.statusCode = HttpStatus.notFound;
+        req.response.write('scenes: ${kScenes.keys.join(' ')}');
+        return;
+      }
+      setState(() => _scene = name);
+    } else if (path == '/tune' && req.method == 'GET') {
+      req.response.headers.contentType = ContentType.json;
+      req.response.write(jsonEncode(AppleMatchTuning.toJson()));
+      return;
+    } else if (path == '/tune' && req.method == 'POST') {
+      final Object? body = jsonDecode(await utf8.decodeStream(req));
+      if (body is Map<String, Object?>) AppleMatchTuning.apply(body);
+    } else if (path == '/tune/reset' && req.method == 'POST') {
+      AppleMatchTuning.reset();
+    } else {
+      req.response.statusCode = HttpStatus.notFound;
+      return;
+    }
+    await SchedulerBinding.instance.endOfFrame;
+    await SchedulerBinding.instance.endOfFrame;
+    req.response.write('ok');
   }
 
   @override
@@ -106,9 +135,11 @@ class _RootState extends State<_Root> {
     final WidgetBuilder? scene = kScenes[_scene];
     if (scene != null) {
       return Scaffold(
-        body: KeyedSubtree(
-          key: ValueKey(_scene),
-          child: Builder(builder: scene),
+        body: AppleMatchTuningScope(
+          child: KeyedSubtree(
+            key: ValueKey(_scene),
+            child: Builder(builder: scene),
+          ),
         ),
       );
     }

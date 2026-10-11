@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_easy/liquid_glass_easy.dart';
 
+import 'apple_match_tuning.dart';
+
 /// A switch tuned to read like iOS 26's `UISwitch`.
 class AppleSwitch extends StatelessWidget {
   const AppleSwitch({
@@ -19,13 +21,16 @@ class AppleSwitch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    AppleMatchTuning.watch(context);
     final Brightness brightness = Theme.of(context).brightness;
     final bool dark = brightness == Brightness.dark;
     return LiquidGlassSwitch(
       value: value,
       onChanged: onChanged,
-      activeColor: activeColor ?? const Color(0xFF34C759),
-      inactiveColor: dark ? const Color(0xA3787880) : const Color(0x6B787880),
+      activeColor: activeColor ??
+          AppleMatchTuning.c(dark ? 'switch.activeDark' : 'switch.activeLight'),
+      inactiveColor: AppleMatchTuning.c(
+          dark ? 'switch.inactiveDark' : 'switch.inactiveLight'),
       style: styleFor(brightness),
     );
   }
