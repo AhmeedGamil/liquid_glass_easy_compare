@@ -10,7 +10,7 @@ final class TraceTests: XCTestCase {
     private var app: XCUIApplication!
     private var w: CGFloat = 402
     private var h: CGFloat = 874
-    private var name = ""
+    private var caseName = ""
 
     override func setUpWithError() throws {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["TRACE_RUN"] != nil,
@@ -122,7 +122,7 @@ final class TraceTests: XCTestCase {
     // MARK: - Plumbing
 
     private func trace(_ name: String, _ scene: String, _ script: () -> Void) {
-        self.name = name
+        caseName = name
         app = XCUIApplication(bundleIdentifier: "dev.lgcompare.apple")
         app.launchEnvironment["SCENE"] = scene
         app.launchEnvironment["TRACE"] = name
@@ -176,7 +176,7 @@ final class TraceTests: XCTestCase {
     }
 
     private func step(_ label: String) {
-        let line = String(format: "MARK %@ %@ %.4f\n", name, label, Date().timeIntervalSince1970)
+        let line = String(format: "MARK %@ %@ %.4f\n", caseName, label, Date().timeIntervalSince1970)
         print(line, terminator: "")
         guard let path = ProcessInfo.processInfo.environment["MARKS_FILE"] else { return }
         if let handle = FileHandle(forWritingAtPath: path) {
