@@ -2,6 +2,15 @@ import SwiftUI
 
 @main
 struct AppleReferenceApp: App {
+    init() {
+        // TRACE=<name> writes the layer tree frame by frame (Tracer.swift).
+        let env = ProcessInfo.processInfo.environment
+        if let name = env["TRACE"] {
+            let seconds = env["TRACE_SECONDS"].flatMap(Double.init) ?? 30
+            DispatchQueue.main.async { FrameTracer.shared.start(name: name, seconds: seconds) }
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -10,12 +19,12 @@ struct AppleReferenceApp: App {
 }
 
 enum CompareScene: String, CaseIterable, Identifiable {
-    case glass, buttons, slider, toggle, tabbar
+    case glass, buttons, slider, toggle, tabbar, menu, toolbarmenu, glassmorph
 
     var id: String { rawValue }
 
     /// Whether the scene sits on a photo (white caption) or a light page.
-    var onPhoto: Bool { self == .glass || self == .buttons }
+    var onPhoto: Bool { self != .slider && self != .toggle && self != .tabbar }
 }
 
 struct RootView: View {
@@ -33,8 +42,14 @@ struct RootView: View {
                 case .slider: SliderScene()
                 case .toggle: ToggleScene()
                 case .tabbar: TabBarScene()
+                case .menu: MenuScene()
+                case .toolbarmenu: ToolbarMenuScene()
+                case .glassmorph: GlassMorphScene()
                 }
-                Caption(scene: scene) { self.scene = nil }
+                // A trace wants nothing on screen but the scene.
+                if ProcessInfo.processInfo.environment["TRACE"] == nil {
+                    Caption(scene: scene) { self.scene = nil }
+                }
             }
         } else {
             HomeView { scene = $0 }

@@ -1,0 +1,53 @@
+name: Trace
+
+# Frame-by-frame geometry of Apple's glass: the tab bar pill under taps,
+# holds and drags, and the circle-to-list morphs. Each case leaves a
+# traces/<case>.jsonl (every layer's on-screen box, scale and corner radius
+# per frame, plus the touches) and the whole run is recorded to trace.mp4.
+
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: Comma list of TraceTests methods (empty = all), e.g. testTab01TapFar,testMorph1Menu
+        type: string
+        default: ""
+      device:
+        description: Simulator model
+        type: string
+        default: iPhone 17 Pro
+      runner:
+        description: macOS runner image (needs Xcode 26)
+        type: string
+        default: macos-26
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-apps
+        with:
+          package_ref: main
+          flutter_version: 3.41.2
+          device: ${{ inputs.device }}
+          build_package: "false"
+
+      - name: Run the traces
+        run: |
+          python3 tools/trace.py --udid "$UDID" --out out \
+            --project apple/AppleReference.xcodeproj --derived build/dd \
+            --only "${{ inputs.only }}"
+          xcrun simctl io "$UDID" screenshot out/last.png || true
+          ls -la out out/traces || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: traces
+          path: out
