@@ -31,6 +31,8 @@ def main():
     ap.add_argument("--project", required=True)
     ap.add_argument("--derived", required=True)
     ap.add_argument("--only", default="")
+    ap.add_argument("--lite", action="store_true",
+                    help="geometry only: no private properties or animation objects")
     args = ap.parse_args()
 
     out = os.path.abspath(args.out)
@@ -47,6 +49,8 @@ def main():
     env = dict(os.environ)
     env["TEST_RUNNER_TRACE_RUN"] = "1"
     env["TEST_RUNNER_MARKS_FILE"] = marks
+    if args.lite:
+        env["TEST_RUNNER_TRACE_LITE"] = "1"
     cmd = [
         "xcodebuild", "test-without-building",
         "-project", args.project,

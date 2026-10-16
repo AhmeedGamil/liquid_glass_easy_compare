@@ -114,15 +114,19 @@ def ancestors(info, i):
 
 
 def morph_rows(frames, info, series, t0):
-    els = [k for k, v in info.items() if v["c"] == "CASDFElementLayer"]
     # Only shapes that move or resize: the bar/background glass stays put.
     def moves(i):
         rs = [tuple(s["r"]) + (scale(s)[0],) for _, s in series[i] if s]
         return len(set(rs)) > 2
-    els = [i for i in els if moves(i)]
-    # Every shape is drawn twice, as glass (under a backdrop layer) and as
-    # its highlight: keep the glass copy.
-    els = [i for i in els if any(info[a]["c"] == "CABackdropLayer" for a in ancestors(info, i))] or els
+    # SwiftUI morphs inside its own SDF renderer: all that shows in the
+    # layer tree is the SDFLayer sized to the morphing shape's box (no
+    # per-frame corner radius).
+    els = [k for k, v in info.items() if v["c"] == "SwiftUI.SDFLayer" and moves(k)]
+    if not els:
+        els = [k for k, v in info.items() if v["c"] == "CASDFElementLayer" and moves(k)]
+        # Every UIKit shape is drawn twice, as glass (under a backdrop
+        # layer) and as its highlight: keep the glass copy.
+        els = [i for i in els if any(info[a]["c"] == "CABackdropLayer" for a in ancestors(info, i))] or els
     chains = {i: ancestors(info, i) for i in els}
     watched = sorted(set(els) | {a for c in chains.values() for a in c})
     names = {i: f"shape{n}" for n, i in enumerate(els)}
@@ -156,11 +160,12 @@ def morph_rows(frames, info, series, t0):
             x, y, w, h = s["r"]
             sx, sy = scale(s)
             k = math.sqrt(abs(sx * sy))
-            cr = radii_of(s)
+            cr = radii_of(s) if info[i]["c"] != "SwiftUI.SDFLayer" else None
             if op > 0.01:
                 boxes.append((x, y, x + w, y + h))
             row += [round(x + w / 2, 2), round(y + h / 2, 2), w, h, s["b"][0], s["b"][1],
-                    round(k, 4), round(cr, 2), round(min(cr * k, min(w, h) / 2), 2), round(op, 3)]
+                    round(k, 4), "" if cr is None else round(cr, 2),
+                    "" if cr is None else round(min(cr * k, min(w, h) / 2), 2), round(op, 3)]
         if boxes:
             ux0, uy0 = min(b[0] for b in boxes), min(b[1] for b in boxes)
             ux1, uy1 = max(b[2] for b in boxes), max(b[3] for b in boxes)
@@ -187,9 +192,11 @@ def main():
     # and up can land together, up to a second after their timestamps).
     # Touches before the "start" mark are the warm-up.
     start_wall = dict(marks).get("start", 0)
-    # A scene that drives itself marks the frame its animation starts.
-    t0 = next(f["t"] for f in frames
-              if (f.get("touch") or f.get("mark")) and f["wall"] >= start_wall)
+    # A scene that drives itself (no touches) marks the frame its
+    # animation starts.
+    t0 = next((f["t"] for f in frames if f.get("touch") and f["wall"] >= start_wall), None)
+    if t0 is None:
+        t0 = next(f["t"] for f in frames if f.get("mark"))
     frames = [f for f in frames if f["t"] >= t0 - 0.1]
     if args.case.startswith("tab_"):
         head, rows = tab_rows(frames, info, series, t0)

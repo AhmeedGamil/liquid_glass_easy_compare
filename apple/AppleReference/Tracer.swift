@@ -60,6 +60,11 @@ final class FrameTracer: NSObject {
 
     private var running: Bool { handle != nil }
 
+    /// TRACE_LITE: geometry, corner radii and opacity only, no private
+    /// properties or animation objects, so a frame that builds hundreds of
+    /// layers (a menu appearing) costs the app as little as possible.
+    private let lite = ProcessInfo.processInfo.environment["TRACE_LITE"] != nil
+
     func start(name: String, seconds: Double) {
         let fm = FileManager.default
         let dir = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -193,17 +198,17 @@ final class FrameTracer: NSObject {
         }
 
         var extras: [String] = []
-        if Self.isInteresting(cls) {
+        if !lite, Self.isInteresting(cls) {
             extras += props(of: p, cls: type(of: layer), prefix: "")
             extras += mirror(layer, prefix: "swift.")
         }
-        if let view, Self.isInteresting(viewClass) {
+        if !lite, let view, Self.isInteresting(viewClass) {
             extras += props(of: view, cls: type(of: view), prefix: "view.")
             extras += mirror(view, prefix: "view.swift.")
         }
         let extra = extras.joined(separator: ",")
 
-        noteAnimations(on: layer, id: id)
+        if !lite { noteAnimations(on: layer, id: id) }
 
         let old = seen[key]
         let isNew = old == nil || old!.identity != identity
