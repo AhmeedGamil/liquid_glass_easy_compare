@@ -28,6 +28,8 @@ final class FrameTracer: NSObject {
     private var touches: [String] = []
     private var stopAt: CFTimeInterval = 0
     private var propsByClass: [ObjectIdentifier: [String]] = [:]
+    private var seenAnimations = Set<String>()
+    private var anims: [String] = []
 
     /// Public classes whose own properties are not worth reading every frame.
     private static let stops: [AnyClass] = [
@@ -36,10 +38,19 @@ final class FrameTracer: NSObject {
         UIView.self, UIControl.self, UIImageView.self, UILabel.self, UIScrollView.self,
     ]
 
-    /// Classes whose private properties are read every frame.
+    /// Classes whose private properties (and Swift stored properties) are
+    /// read every frame: the glass shapes and what moves them.
     private static let interesting = try! NSRegularExpression(
-        pattern: "SDF|Glass|Lens|Backdrop|Portal|Platter|Effect|Selection|Indicator|Morph|Lift|Highlight|Shadow|Matte|Corner|Shape|Tab|Menu",
+        pattern: "SDF|Lens|Morph|Pivot|Selection",
         options: [.caseInsensitive])
+
+    /// Animation fields read when an animation first shows up on a layer.
+    private static let animationKeys = [
+        "keyPath", "beginTime", "duration", "speed", "timeOffset", "repeatCount", "autoreverses",
+        "fillMode", "additive", "cumulative", "removedOnCompletion", "fromValue", "toValue", "byValue",
+        "mass", "stiffness", "damping", "initialVelocity", "settlingDuration", "perceptualDuration",
+        "bounce", "allowsOverdamping", "values", "keyTimes", "calculationMode",
+    ]
 
     private var running: Bool { handle != nil }
 
@@ -101,6 +112,10 @@ final class FrameTracer: NSObject {
             touches.removeAll()
         }
         if !items.isEmpty { line += ",\"l\":[" + items.joined(separator: ",") + "]" }
+        if !anims.isEmpty {
+            line += ",\"anim\":[" + anims.joined(separator: ",") + "]"
+            anims.removeAll()
+        }
         if !gone.isEmpty { line += ",\"gone\":[" + gone.joined(separator: ",") + "]" }
         line += "}\n"
         write(line)
@@ -156,13 +171,22 @@ final class FrameTracer: NSObject {
         }
 
         var extras: [String] = []
-        if Self.isInteresting(cls) { extras += props(of: p, cls: type(of: layer), prefix: "") }
-        if let view, Self.isInteresting(viewClass) { extras += props(of: view, cls: type(of: view), prefix: "view.") }
+        if Self.isInteresting(cls) {
+            extras += props(of: p, cls: type(of: layer), prefix: "")
+            extras += mirror(layer, prefix: "swift.")
+        }
+        if let view, Self.isInteresting(viewClass) {
+            extras += props(of: view, cls: type(of: view), prefix: "view.")
+            extras += mirror(view, prefix: "view.swift.")
+        }
         let extra = extras.joined(separator: ",")
+
+        noteAnimations(on: layer, id: id)
 
         let old = seen[key]
         let isNew = old == nil || old!.identity != identity
-        if isNew || old!.extra != extra || !Self.same(old!.nums, nums) {
+        let extraChanged = isNew || old!.extra != extra
+        if extraChanged || !Self.same(old!.nums, nums) {
             var s = "{\"id\":\"\(id)\""
             if isNew { s += "," + identity }
             s += ",\"r\":[\(f(box.minX)),\(f(box.minY)),\(f(box.width)),\(f(box.height))]"
@@ -179,7 +203,9 @@ final class FrameTracer: NSObject {
             if p.masksToBounds { s += ",\"clip\":1" }
             if !CATransform3DIsAffine(t3) { s += ",\"t3\":1" }
             s += maskText + pathText
-            if !extra.isEmpty { s += ",\"x\":{\(extra)}" }
+            // Properties ride along only when they changed; readers carry
+            // the last "x" forward.
+            if extraChanged && !extra.isEmpty { s += ",\"x\":{\(extra)}" }
             s += "}"
             items.append(s)
             seen[key] = Seen(id: id, identity: identity, nums: nums, extra: extra)
@@ -210,6 +236,60 @@ final class FrameTracer: NSObject {
         return names.compactMap { name in
             LGIntrospect.text(for: object, key: name).map { "\"\(prefix)\(esc(name))\":\"\(esc($0))\"" }
         }
+    }
+
+    /// Swift stored properties (UIKit's glass views are Swift classes the
+    /// Objective-C runtime cannot list).
+    private func mirror(_ object: Any, prefix: String) -> [String] {
+        var out: [String] = []
+        var m: Mirror? = Mirror(reflecting: object)
+        var depth = 0
+        while let mm = m, depth < 4 {
+            for child in mm.children {
+                guard let label = child.label else { continue }
+                var text = String(describing: child.value)
+                if text.count > 240 { text = String(text.prefix(240)) }
+                out.append("\"\(prefix)\(esc(label))\":\"\(esc(text))\"")
+            }
+            m = mm.superclassMirror
+            depth += 1
+        }
+        return out
+    }
+
+    /// Writes each animation once, the frame it is first seen on a layer.
+    private func noteAnimations(on layer: CALayer, id: String) {
+        guard let keys = layer.animationKeys(), !keys.isEmpty else { return }
+        for key in keys {
+            guard let a = layer.animation(forKey: key) else { continue }
+            let sig = "\(id)|\(key)|\(Unmanaged.passUnretained(a).toOpaque())|\(a.beginTime)"
+            guard seenAnimations.insert(sig).inserted else { continue }
+            let now = CACurrentMediaTime()
+            anims.append("{\"id\":\"\(id)\",\"key\":\"\(esc(key))\",\"now\":\(t6(now)),\"layerNow\":\(t6(layer.convertTime(now, from: nil))),\(describe(a))}")
+        }
+    }
+
+    private func describe(_ a: CAAnimation) -> String {
+        var parts = ["\"cls\":\"\(esc(NSStringFromClass(type(of: a))))\""]
+        var names = Self.animationKeys
+        for name in LGIntrospect.printableProperties(of: type(of: a), stopAt: [NSObject.self]) where !names.contains(name) {
+            names.append(name)
+        }
+        for name in names where a.responds(to: NSSelectorFromString(name)) {
+            if let text = LGIntrospect.text(for: a, key: name) {
+                parts.append("\"\(esc(name))\":\"\(esc(text.count > 400 ? String(text.prefix(400)) : text))\"")
+            }
+        }
+        if let tf = a.timingFunction {
+            var c1: [Float] = [0, 0], c2: [Float] = [0, 0]
+            tf.getControlPoint(at: 1, values: &c1)
+            tf.getControlPoint(at: 2, values: &c2)
+            parts.append("\"timing\":[\(c1[0]),\(c1[1]),\(c2[0]),\(c2[1])]")
+        }
+        if let group = a as? CAAnimationGroup, let children = group.animations {
+            parts.append("\"children\":[" + children.map { "{" + describe($0) + "}" }.joined(separator: ",") + "]")
+        }
+        return parts.joined(separator: ",")
     }
 
     private static func isInteresting(_ name: String) -> Bool {

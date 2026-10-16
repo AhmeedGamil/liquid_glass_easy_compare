@@ -91,13 +91,18 @@ struct GlassMorphScene: View {
                     .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
                     .glassEffectID("menu", in: space)
                 } else {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: MorphSpot.size, height: MorphSpot.size)
-                        .glassEffect(.regular.interactive(), in: Circle())
-                        .glassEffectID("menu", in: space)
-                        .onTapGesture { withAnimation(.bouncy) { open = true } }
+                    // A Button: interactive glass swallows a plain tap gesture.
+                    Button {
+                        withAnimation(.bouncy) { open = true }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: MorphSpot.size, height: MorphSpot.size)
+                    }
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular.interactive(), in: Circle())
+                    .glassEffectID("menu", in: space)
                 }
             }
             .padding(.top, MorphSpot.top)

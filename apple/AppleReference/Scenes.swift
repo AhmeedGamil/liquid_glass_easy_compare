@@ -161,6 +161,15 @@ struct TabBarScene: View {
             Tab("Radio", systemImage: "dot.radiowaves.left.and.right", value: 2) { Feed(title: "Radio") }
             Tab("Library", systemImage: "music.note.list", value: 3) { Feed(title: "Library") }
         }
+        .task {
+            // A trace visits every tab first, so no page is built (and no
+            // frame stalls) during the gestures it measures.
+            guard ProcessInfo.processInfo.environment["TRACE"] != nil else { return }
+            for t in [1, 2, 3, 0] {
+                try? await Task.sleep(for: .milliseconds(300))
+                tab = t
+            }
+        }
     }
 }
 

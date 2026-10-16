@@ -18,6 +18,9 @@ import re
 import sys
 
 
+BAD_NUMBER = re.compile(r"(?<=[:\[,])-?(?:nan|inf)(?=[,\]}])")
+
+
 def load(run, case):
     path = os.path.join(run, "traces", f"{case}.jsonl")
     header, frames = None, []
@@ -26,6 +29,8 @@ def load(run, case):
             line = line.strip()
             if not line:
                 continue
+            # The tracer prints nan/inf as is (UIKit's capsule corner radius is nan).
+            line = BAD_NUMBER.sub("null", line)
             try:
                 d = json.loads(line)
             except json.JSONDecodeError:
@@ -45,13 +50,19 @@ def load(run, case):
 
 def replay(frames):
     """Per layer: identity, and its full state on every frame it changed."""
-    info, series = {}, {}
+    info, series, lastx = {}, {}, {}
     for fr in frames:
         for l in fr.get("l", []):
             lid = l["id"]
             if "c" in l:
                 info[lid] = {k: l[k] for k in ("p", "d", "c", "v", "nm")}
                 series.setdefault(lid, [])
+                lastx.pop(lid, None)
+            # Properties are only written when they change: carry them on.
+            if "x" in l:
+                lastx[lid] = l["x"]
+            elif lid in lastx:
+                l = dict(l, x=lastx[lid])
             series.setdefault(lid, []).append((fr["t"], l))
         for g in fr.get("gone", []):
             series.setdefault(g, []).append((fr["t"], None))
@@ -116,7 +127,7 @@ def main():
             def spread(k):
                 vals = [st["r"][k] for st in states]
                 return max(vals) - min(vals)
-            crs = [st.get("cr", 0) for st in states]
+            crs = [st.get("cr") or 0 for st in states]
             sc = [scale(st)[0] for st in states]
             score = spread(0) + spread(1) + 2 * spread(2) + 2 * spread(3) + 4 * (max(crs) - min(crs)) + 100 * (max(sc) - min(sc))
             if score < 0.5 and not any("x" in st for st in states):
@@ -156,6 +167,8 @@ def main():
             x, y, ww, hh = st["r"]
             sx, sy = scale(st)
             cr = st.get("cr", 0)
+            if cr is None:  # nan: a capsule, half the short side
+                cr = min(st["b"]) / 2
             row += [x, y, ww, hh, round(x + ww / 2, 2), round(y + hh / 2, 2), round(sx, 4), round(sy, 4),
                     cr, round(cr * min(sx, sy), 2), st.get("o", 1)]
         w.writerow(row)
