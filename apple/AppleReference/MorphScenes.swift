@@ -91,7 +91,8 @@ struct GlassMorphScene: View {
                     .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
                     .glassEffectID("menu", in: space)
                 } else {
-                    // A Button: interactive glass swallows a plain tap gesture.
+                    // A Button on plain glass: interactive glass swallows
+                    // the tap, so the morph would never start.
                     Button {
                         withAnimation(.bouncy) { open = true }
                     } label: {
@@ -101,7 +102,7 @@ struct GlassMorphScene: View {
                             .frame(width: MorphSpot.size, height: MorphSpot.size)
                     }
                     .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: Circle())
+                    .glassEffect(.regular, in: Circle())
                     .glassEffectID("menu", in: space)
                 }
             }
