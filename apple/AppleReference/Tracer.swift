@@ -50,7 +50,12 @@ final class FrameTracer: NSObject {
         "fillMode", "additive", "cumulative", "removedOnCompletion", "fromValue", "toValue", "byValue",
         "mass", "stiffness", "damping", "initialVelocity", "settlingDuration", "perceptualDuration",
         "bounce", "allowsOverdamping", "values", "keyTimes", "calculationMode",
+        "sourceLayer", "properties", "sourcePoints", "targetsSuperlayer",
     ]
+
+    /// Corner radii UIKit's glass shapes copy from their source layer
+    /// (CALayer's private per-corner radii).
+    private static let radiiSelector = NSSelectorFromString("cornerRadii")
 
     private var running: Bool { handle != nil }
 
@@ -163,6 +168,12 @@ final class FrameTracer: NSObject {
             }
             maskText += "}"
         }
+        var radiiText = ""
+        if p.responds(to: Self.radiiSelector), let radii = LGIntrospect.text(for: p, key: "cornerRadii"),
+           radii.contains(where: { $0 != "0" && $0 != " " }) {
+            radiiText = ",\"radii\":\"\(esc(radii))\""
+            for part in radii.split(separator: " ") { nums.append(CGFloat(Double(part) ?? 0)) }
+        }
         var pathText = ""
         if let shape = p as? CAShapeLayer, let path = shape.path {
             let pb = path.boundingBox
@@ -202,7 +213,7 @@ final class FrameTracer: NSObject {
             if p.isHidden { s += ",\"h\":1" }
             if p.masksToBounds { s += ",\"clip\":1" }
             if !CATransform3DIsAffine(t3) { s += ",\"t3\":1" }
-            s += maskText + pathText
+            s += maskText + pathText + radiiText
             // Properties ride along only when they changed; readers carry
             // the last "x" forward.
             if extraChanged && !extra.isEmpty { s += ",\"x\":{\(extra)}" }
