@@ -30,6 +30,7 @@ final class FrameTracer: NSObject {
     private var propsByClass: [ObjectIdentifier: [String]] = [:]
     private var seenAnimations = Set<String>()
     private var anims: [String] = []
+    private var marks: [String] = []
 
     /// Public classes whose own properties are not worth reading every frame.
     private static let stops: [AnyClass] = [
@@ -79,6 +80,12 @@ final class FrameTracer: NSObject {
         self.link = link
     }
 
+    /// A named moment (e.g. a morph starting), written with the next frame.
+    func mark(_ name: String) {
+        guard running else { return }
+        marks.append("\"\(esc(name))\"")
+    }
+
     func note(_ event: UIEvent) {
         guard running, event.type == .touches, let all = event.allTouches else { return }
         for touch in all {
@@ -115,6 +122,10 @@ final class FrameTracer: NSObject {
         if !touches.isEmpty {
             line += ",\"touch\":[" + touches.joined(separator: ",") + "]"
             touches.removeAll()
+        }
+        if !marks.isEmpty {
+            line += ",\"mark\":[" + marks.joined(separator: ",") + "]"
+            marks.removeAll()
         }
         if !items.isEmpty { line += ",\"l\":[" + items.joined(separator: ",") + "]" }
         if !anims.isEmpty {

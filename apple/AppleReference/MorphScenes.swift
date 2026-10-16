@@ -110,5 +110,16 @@ struct GlassMorphScene: View {
             .padding(.trailing, MorphSpot.trailing)
         }
         .ignoresSafeArea()
+        .task {
+            // A trace drives the morph itself: the test runner's taps can
+            // arrive as zero-length touches that never fire the Button.
+            guard ProcessInfo.processInfo.environment["TRACE"] != nil else { return }
+            try? await Task.sleep(for: .seconds(4))
+            FrameTracer.shared.mark("open")
+            withAnimation(.bouncy) { open = true }
+            try? await Task.sleep(for: .seconds(3))
+            FrameTracer.shared.mark("close")
+            withAnimation(.bouncy) { open = false }
+        }
     }
 }

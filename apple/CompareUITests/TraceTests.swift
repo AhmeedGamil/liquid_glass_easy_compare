@@ -111,10 +111,8 @@ final class TraceTests: XCTestCase {
     }
 
     func testMorph4GlassEffectID() {
-        trace("morph_glass_effect_id", "glassmorph") {
-            step("open"); tap(morphSource()); pause(2.0)
-            step("close"); tap(p(0.3, 0.85)); pause(2.0)
-        }
+        // The scene opens and closes itself (4 s and 7 s after launch).
+        trace("morph_glass_effect_id", "glassmorph") { pause(7.0) }
     }
 
     // MARK: - Plumbing

@@ -105,6 +105,14 @@ def tab_rows(frames, info, series, t0):
     return head, rows
 
 
+def ancestors(info, i):
+    out, cur = [], info[i]["p"]
+    while cur in info:
+        out.append(cur)
+        cur = info[cur]["p"]
+    return out
+
+
 def morph_rows(frames, info, series, t0):
     els = [k for k, v in info.items() if v["c"] == "CASDFElementLayer"]
     # Only shapes that move or resize: the bar/background glass stays put.
@@ -112,37 +120,47 @@ def morph_rows(frames, info, series, t0):
         rs = [tuple(s["r"]) + (scale(s)[0],) for _, s in series[i] if s]
         return len(set(rs)) > 2
     els = [i for i in els if moves(i)]
-    # One shape is often drawn twice (a glass layer and its highlight); keep
-    # the first of every set that always shares the same box.
-    sigs, keep = {}, []
-    for i in els:
-        sig = tuple(tuple(s["r"]) for _, s in series[i] if s)[:40]
-        if sig not in sigs:
-            sigs[sig] = i
-            keep.append(i)
-    names = {i: f"shape{n}" for n, i in enumerate(keep)}
+    # Every shape is drawn twice, as glass (under a backdrop layer) and as
+    # its highlight: keep the glass copy.
+    els = [i for i in els if any(info[a]["c"] == "CABackdropLayer" for a in ancestors(info, i))] or els
+    chains = {i: ancestors(info, i) for i in els}
+    watched = sorted(set(els) | {a for c in chains.values() for a in c})
+    names = {i: f"shape{n}" for n, i in enumerate(els)}
     head = ["t_ms", "touch", "touch_x", "touch_y", "union_x", "union_y", "union_w", "union_h"]
-    for i in keep:
+    for i in els:
         n = names[i]
         head += [f"{n}_cx", f"{n}_cy", f"{n}_w", f"{n}_h", f"{n}_bw", f"{n}_bh", f"{n}_scale",
-                 f"{n}_corner_radius", f"{n}_corner_radius_screen", f"{n}_hidden"]
+                 f"{n}_corner_radius", f"{n}_corner_radius_screen", f"{n}_opacity"]
+        # corner_radius_screen is what shows: radius x scale, capped at half
+        # the short side (a larger radius just means fully round).
     rows, touch = [], ("", "", "")
-    for fr, cur in walk(frames, series, keep):
+    for fr, cur in walk(frames, series, watched):
         touch = touch_columns(fr, touch)
         row, boxes = [], []
-        for i in keep:
+        for i in els:
             s = cur[i]
             if s is None or s["r"][2] <= 0.01:
                 row += [""] * 10
                 continue
+            # What the shape really shows: its own and every ancestor's
+            # opacity, and nothing at all if any of them is hidden.
+            op = 1.0
+            for a in [i] + chains[i]:
+                sa = cur.get(a)
+                if sa is None:
+                    continue
+                if sa.get("h"):
+                    op = 0.0
+                    break
+                op *= sa.get("o", 1)
             x, y, w, h = s["r"]
             sx, sy = scale(s)
+            k = math.sqrt(abs(sx * sy))
             cr = radii_of(s)
-            hidden = 1 if s.get("h") or s.get("o", 1) == 0 else 0
-            if not hidden:
+            if op > 0.01:
                 boxes.append((x, y, x + w, y + h))
             row += [round(x + w / 2, 2), round(y + h / 2, 2), w, h, s["b"][0], s["b"][1],
-                    round(math.sqrt(abs(sx * sy)), 4), round(cr, 2), round(cr * math.sqrt(abs(sx * sy)), 2), hidden]
+                    round(k, 4), round(cr, 2), round(min(cr * k, min(w, h) / 2), 2), round(op, 3)]
         if boxes:
             ux0, uy0 = min(b[0] for b in boxes), min(b[1] for b in boxes)
             ux1, uy1 = max(b[2] for b in boxes), max(b[3] for b in boxes)
@@ -152,7 +170,7 @@ def morph_rows(frames, info, series, t0):
         rows.append([round((fr["t"] - t0) * 1000, 1), *touch, *union, *row])
         if touch[0].endswith(("ended", "cancelled")):
             touch = ("", "", "")
-    return head, rows, {names[i]: info[i]["v"] for i in keep}
+    return head, rows, {names[i]: info[i]["v"] for i in els}
 
 
 def main():
@@ -169,7 +187,9 @@ def main():
     # and up can land together, up to a second after their timestamps).
     # Touches before the "start" mark are the warm-up.
     start_wall = dict(marks).get("start", 0)
-    t0 = next(f["t"] for f in frames if f.get("touch") and f["wall"] >= start_wall)
+    # A scene that drives itself marks the frame its animation starts.
+    t0 = next(f["t"] for f in frames
+              if (f.get("touch") or f.get("mark")) and f["wall"] >= start_wall)
     frames = [f for f in frames if f["t"] >= t0 - 0.1]
     if args.case.startswith("tab_"):
         head, rows = tab_rows(frames, info, series, t0)
