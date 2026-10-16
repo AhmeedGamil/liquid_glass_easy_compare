@@ -308,11 +308,16 @@ final class FrameTracer: NSObject {
         var out: [String: String] = [:]
         var visited = Set<ObjectIdentifier>([ObjectIdentifier(view)])
         deepWalk(view, path: id, depth: 5, visited: &visited, out: &out)
+        // The view's own Objective-C ivars (UIKit's Swift views keep their
+        // Objective-C state there too).
+        for (k, v) in LGIntrospect.ivars(of: view, path: id + ".ivar", depth: 3) { out[k] = v }
         for (i, interaction) in view.interactions.enumerated() {
             let name = NSStringFromClass(type(of: interaction as AnyObject))
             let path = "\(id).interaction\(i)"
             out[path + ".class"] = name
             deepWalk(interaction, path: path, depth: 5, visited: &visited, out: &out)
+            // Objective-C interactions carry no Swift metadata: read ivars.
+            for (k, v) in LGIntrospect.ivars(of: interaction, path: path, depth: 4) { out[k] = v }
         }
         for (k, v) in out where deepLast[k] != v {
             deepLast[k] = v

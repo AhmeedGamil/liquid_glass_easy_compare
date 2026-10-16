@@ -12,6 +12,16 @@ NS_ASSUME_NONNULL_BEGIN
 + (NSArray<NSString *> *)printablePropertiesOf:(Class)cls stopAt:(NSArray<Class> *)stops
     NS_SWIFT_NAME(printableProperties(of:stopAt:));
 
+/// Every instance variable of [object] (its class up to NSObject, minus
+/// UIKit's view and layer bases), as path -> text: numbers, booleans and
+/// geometry read straight from the ivar's offset; object ivars followed
+/// [depth] levels down (views and layers are named, not entered); arrays
+/// entered for their first few elements.
++ (NSDictionary<NSString *, NSString *> *)ivarsOf:(id)object
+                                              path:(NSString *)path
+                                             depth:(int)depth
+    NS_SWIFT_NAME(ivars(of:path:depth:));
+
 /// The property's value as short text, or nil when reading it throws.
 + (nullable NSString *)textFor:(id)object key:(NSString *)key
     NS_SWIFT_NAME(text(for:key:));
