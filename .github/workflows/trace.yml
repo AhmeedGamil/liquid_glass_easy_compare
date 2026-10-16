@@ -16,6 +16,10 @@ on:
         description: Geometry only (no private properties or animation objects), for the cleanest timing
         type: boolean
         default: false
+      deep:
+        description: Regex of view classes whose Swift state is walked every frame (empty = off)
+        type: string
+        default: ""
       device:
         description: Simulator model
         type: string
@@ -46,7 +50,7 @@ jobs:
         run: |
           python3 tools/trace.py --udid "$UDID" --out out \
             --project apple/AppleReference.xcodeproj --derived build/dd \
-            --only "${{ inputs.only }}" ${{ inputs.lite && '--lite' || '' }}
+            --only "${{ inputs.only }}" --deep "${{ inputs.deep }}" ${{ inputs.lite && '--lite' || '' }}
           xcrun simctl io "$UDID" screenshot out/last.png || true
           ls -la out out/traces || true
 

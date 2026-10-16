@@ -97,6 +97,10 @@ def tab_rows(frames, info, series, t0):
         # corner radius (half its height) confirms it while it animates.
         cr = (cur[sel].get("cr") if sel and cur[sel] else None) or s["b"][1] / 2
         lifted = (s.get("x") or {}).get("view.lifted", "")
+        if lifted == "":
+            # Lite traces carry no view properties: the lifted glass is the
+            # one grown past the resting 54 pt.
+            lifted = 1 if s["b"][1] > 54.5 else 0
         rows.append([round((fr["t"] - t0) * 1000, 1), *touch, lifted,
                      round(x + w / 2, 2), round(y + h / 2, 2), w, h, s["b"][0], s["b"][1],
                      round(sx, 4), round(sy, 4), round(cr, 2), round(cr * sx, 2), round(cr * sy, 2)])

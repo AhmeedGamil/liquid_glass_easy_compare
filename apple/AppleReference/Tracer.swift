@@ -65,6 +65,16 @@ final class FrameTracer: NSObject {
     /// layers (a menu appearing) costs the app as little as possible.
     private let lite = ProcessInfo.processInfo.environment["TRACE_LITE"] != nil
 
+    /// TRACE_DEEP: views whose class matches this pattern (and the
+    /// interactions attached to them) have their Swift state walked every
+    /// frame — springs, targets, velocities — and every leaf value that
+    /// changed is written under "deep".
+    private let deepPattern: NSRegularExpression? = ProcessInfo.processInfo
+        .environment["TRACE_DEEP"]
+        .flatMap { try? NSRegularExpression(pattern: $0, options: [.caseInsensitive]) }
+    private var deepLast: [String: String] = [:]
+    private var deepItems: [String] = []
+
     func start(name: String, seconds: Double) {
         let fm = FileManager.default
         let dir = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -127,6 +137,10 @@ final class FrameTracer: NSObject {
         if !touches.isEmpty {
             line += ",\"touch\":[" + touches.joined(separator: ",") + "]"
             touches.removeAll()
+        }
+        if !deepItems.isEmpty {
+            line += ",\"deep\":{" + deepItems.joined(separator: ",") + "}"
+            deepItems.removeAll()
         }
         if !marks.isEmpty {
             line += ",\"mark\":[" + marks.joined(separator: ",") + "]"
@@ -209,6 +223,10 @@ final class FrameTracer: NSObject {
         let extra = extras.joined(separator: ",")
 
         if !lite { noteAnimations(on: layer, id: id) }
+        if let view, let pattern = deepPattern,
+           pattern.firstMatch(in: viewClass, range: NSRange(viewClass.startIndex..., in: viewClass)) != nil {
+            noteDeep(view, id: id)
+        }
 
         let old = seen[key]
         let isNew = old == nil || old!.identity != identity
@@ -282,6 +300,91 @@ final class FrameTracer: NSObject {
             depth += 1
         }
         return out
+    }
+
+    /// Walks [view]'s Swift state and that of its interactions, and queues
+    /// every leaf value that changed since the last frame.
+    private func noteDeep(_ view: UIView, id: String) {
+        var out: [String: String] = [:]
+        var visited = Set<ObjectIdentifier>([ObjectIdentifier(view)])
+        deepWalk(view, path: id, depth: 5, visited: &visited, out: &out)
+        for (i, interaction) in view.interactions.enumerated() {
+            let name = NSStringFromClass(type(of: interaction as AnyObject))
+            let path = "\(id).interaction\(i)"
+            out[path + ".class"] = name
+            deepWalk(interaction, path: path, depth: 5, visited: &visited, out: &out)
+        }
+        for (k, v) in out where deepLast[k] != v {
+            deepLast[k] = v
+            deepItems.append("\"\(esc(k))\":\"\(esc(v))\"")
+        }
+    }
+
+    private func deepWalk(_ value: Any, path: String, depth: Int,
+                          visited: inout Set<ObjectIdentifier>, out: inout [String: String]) {
+        if out.count > 3000 { return }
+        var mirror: Mirror? = Mirror(reflecting: value)
+        var index = 0
+        while let m = mirror {
+            for child in m.children {
+                let label = child.label ?? "[\(index)]"
+                index += 1
+                if index > 400 { return }
+                deepChild(child.value, path: path + "." + label, depth: depth,
+                          visited: &visited, out: &out)
+            }
+            mirror = m.superclassMirror
+        }
+    }
+
+    private func deepChild(_ value: Any, path: String, depth: Int,
+                           visited: inout Set<ObjectIdentifier>, out: inout [String: String]) {
+        switch value {
+        case let v as Double: out[path] = String(format: "%.5g", v); return
+        case let v as Float: out[path] = String(format: "%.5g", Double(v)); return
+        case let v as CGFloat: out[path] = String(format: "%.5g", Double(v)); return
+        case let v as Int: out[path] = String(v); return
+        case let v as Bool: out[path] = v ? "1" : "0"; return
+        case let v as String: out[path] = String(v.prefix(80)); return
+        case let v as CGPoint: out[path] = String(format: "%.4g %.4g", Double(v.x), Double(v.y)); return
+        case let v as CGSize: out[path] = String(format: "%.4g %.4g", Double(v.width), Double(v.height)); return
+        case let v as CGRect:
+            out[path] = String(format: "%.4g %.4g %.4g %.4g", Double(v.minX), Double(v.minY), Double(v.width), Double(v.height))
+            return
+        default: break
+        }
+        let m = Mirror(reflecting: value)
+        switch m.displayStyle {
+        case .optional:
+            if let some = m.children.first {
+                deepChild(some.value, path: path, depth: depth, visited: &visited, out: &out)
+            } else {
+                out[path] = "nil"
+            }
+        case .enum where m.children.isEmpty:
+            out[path] = String(describing: value)
+        case .class:
+            let object = value as AnyObject
+            let oid = ObjectIdentifier(object)
+            // Views and layers are traced as layers already.
+            if object is UIView || object is CALayer {
+                out[path] = "<\(type(of: object))>"
+                return
+            }
+            guard depth > 0, !visited.contains(oid) else { return }
+            visited.insert(oid)
+            out[path + ".class"] = String(describing: type(of: object))
+            deepWalk(value, path: path, depth: depth - 1, visited: &visited, out: &out)
+        case .collection, .set, .dictionary:
+            out[path + ".count"] = String(m.children.count)
+            guard depth > 0 else { return }
+            for (i, c) in m.children.prefix(6).enumerated() {
+                deepChild(c.value, path: path + "[\(i)]", depth: depth - 1, visited: &visited, out: &out)
+            }
+        default:
+            guard depth > 0 else { return }
+            deepWalk(value, path: path, depth: depth - 1, visited: &visited, out: &out)
+        }
     }
 
     /// Writes each animation once, the frame it is first seen on a layer.

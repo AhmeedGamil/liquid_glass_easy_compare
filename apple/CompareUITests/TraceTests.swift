@@ -142,8 +142,10 @@ final class TraceTests: XCTestCase {
         app.launchEnvironment["SCENE"] = scene
         app.launchEnvironment["TRACE"] = name
         app.launchEnvironment["TRACE_SECONDS"] = "30"
-        if let lite = ProcessInfo.processInfo.environment["TRACE_LITE"] {
-            app.launchEnvironment["TRACE_LITE"] = lite
+        for key in ["TRACE_LITE", "TRACE_DEEP"] {
+            if let value = ProcessInfo.processInfo.environment[key] {
+                app.launchEnvironment[key] = value
+            }
         }
         app.launch()
         let frame = app.frame

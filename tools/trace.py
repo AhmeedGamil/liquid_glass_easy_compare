@@ -33,6 +33,8 @@ def main():
     ap.add_argument("--only", default="")
     ap.add_argument("--lite", action="store_true",
                     help="geometry only: no private properties or animation objects")
+    ap.add_argument("--deep", default="",
+                    help="regex of view classes whose Swift state is walked every frame")
     args = ap.parse_args()
 
     out = os.path.abspath(args.out)
@@ -51,6 +53,8 @@ def main():
     env["TEST_RUNNER_MARKS_FILE"] = marks
     if args.lite:
         env["TEST_RUNNER_TRACE_LITE"] = "1"
+    if args.deep:
+        env["TEST_RUNNER_TRACE_DEEP"] = args.deep
     cmd = [
         "xcodebuild", "test-without-building",
         "-project", args.project,
