@@ -90,24 +90,22 @@ final class TraceTests: XCTestCase {
     // MARK: - Morph: circle to list and back
 
     func testMorph1Menu() {
-        trace("morph_menu", "menu") {
+        trace("morph_menu", "menu", warmUp: { self.warmMenu(self.morphSource()) }) {
             step("open"); tap(morphSource()); pause(2.0)
             step("close"); tap(p(0.3, 0.85)); pause(2.0)
         }
     }
 
     func testMorph2MenuHold() {
-        trace("morph_menu_hold", "menu") {
+        trace("morph_menu_hold", "menu", warmUp: { self.warmMenu(self.morphSource()) }) {
             step("hold"); hold(morphSource(), 1.2); step("up"); pause(2.0)
             step("close"); tap(p(0.3, 0.85)); pause(2.0)
         }
     }
 
     func testMorph3ToolbarMenu() {
-        trace("morph_toolbar_menu", "toolbarmenu") {
-            let more = app.buttons["More"].firstMatch
-            let at = more.exists ? CGPoint(x: more.frame.midX, y: more.frame.midY) : CGPoint(x: w - 36, y: 84)
-            step("open"); tap(at); pause(2.0)
+        trace("morph_toolbar_menu", "toolbarmenu", warmUp: { self.warmMenu(self.toolbarMore()) }) {
+            step("open"); tap(toolbarMore()); pause(2.0)
             step("close"); tap(p(0.3, 0.85)); pause(2.0)
         }
     }
@@ -121,7 +119,26 @@ final class TraceTests: XCTestCase {
 
     // MARK: - Plumbing
 
-    private func trace(_ name: String, _ scene: String, _ script: () -> Void) {
+    private func toolbarMore() -> CGPoint {
+        let more = app.buttons["More"].firstMatch
+        return more.exists ? CGPoint(x: more.frame.midX, y: more.frame.midY) : CGPoint(x: w - 36, y: 84)
+    }
+
+    /// The first menu an app shows freezes it while UIKit builds the menu,
+    /// swallowing the start of the morph: open and close one first.
+    private func warmMenu(_ at: CGPoint) {
+        tap(at); pause(2.0)
+        tap(p(0.3, 0.85)); pause(2.0)
+    }
+
+    /// The tab bar's first touch builds the lifted glass (a ~100 ms stall):
+    /// press the selected tab once first.
+    private func warmTabs() {
+        hold(tab(0), 0.6); pause(1.5)
+    }
+
+    private func trace(_ name: String, _ scene: String, warmUp: (() -> Void)? = nil,
+                       _ script: () -> Void) {
         caseName = name
         app = XCUIApplication(bundleIdentifier: "dev.lgcompare.apple")
         app.launchEnvironment["SCENE"] = scene
@@ -131,6 +148,11 @@ final class TraceTests: XCTestCase {
         let frame = app.frame
         if frame.width > 0 { w = frame.width; h = frame.height }
         pause(3.0)
+        if let warmUp {
+            warmUp()
+        } else if scene == "tabbar" {
+            warmTabs()
+        }
         step("start")
         script()
         step("end")
